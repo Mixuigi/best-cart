@@ -93,3 +93,9 @@ node -e "const s=require('fs').readFileSync('index.html','utf8');const m=[...s.m
 - Сборка — GitHub Actions `.github/workflows/apk.yml` при пуше в `android/**`; APK выкладывается в релиз `apk`: https://github.com/Mixuigi/best-cart/releases/download/apk/golos-kruga.apk. При ошибке лог сборки уходит в релиз `apk-log` (`build-log.txt`) — его можно скачать без авторизации.
 - Подпись: `android/app/sign.p12` (пароль в `app/build.gradle`) закоммичен намеренно, чтобы новые сборки ставились поверх старых. При изменениях поднимать `versionCode`.
 - Запасной вариант без APK — «карманный режим» на странице: экран не гаснет (wake lock), но чёрный и игнорирует касания.
+
+### Голос GLaDOS (`voice/`)
+
+Не клон чужого голоса: Светлана + обработка `voice/glados_style.py` (мелодика ступеньками по полутонам вокруг A3, концы фраз ровно/вверх, EQ, металл-дубль, компрессия). Фрагменты `snd/glados/` генерирует `voice/make_glados_clips.py` (Python 3.12 + numpy scipy pyworld miniaudio soundfile edge-tts) — без зала; зал (`hallChain`, 2.4 с, 7.5 кГц, wet 12 %) добавляет страница при воспроизведении. Новые фразы: добавить в `PHR` (index.html) и `CLIPS` (make_clips.py), затем запустить оба генератора.
+
+Подколка «Я запишу в свой отчёт твои результаты… Их никто не увидит» (`report1`/`report2`, настройка `sayTaunt`): один раз, когда свой карт 5 кругов подряд в топ-6; вылетел из топ-6 — счёт заново.
