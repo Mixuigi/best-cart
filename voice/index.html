@@ -301,7 +301,7 @@ const $ = s => document.querySelector(s);
 let cfg = {...DEF};
 try{ cfg = {...DEF, ...JSON.parse(localStorage.getItem(KEY) || '{}')}; }catch(e){}
 if(!cfg.voice) cfg.voice = DEF.voice;
-if(cfg.fx === 'robot'){ cfg.voice = 'nn:robot'; } delete cfg.fx;          // была отдельная настройка «Эффект»
+delete cfg.fx;                              // была отдельная настройка «Эффект»
 function saveCfg(){ try{ localStorage.setItem(KEY, JSON.stringify(cfg)); }catch(e){} }
 
 let running = false, laps = [], last = null;
@@ -352,11 +352,7 @@ function fmt(ms){
 const VOICES = {
   svetlana: {name:'Светлана', clips:'svetlana'},
   dmitry:   {name:'Дмитрий', clips:'dmitry'},
-  robot:    {name:'Робот — ИИ из фантастики', clips:'svetlana', fx:'robot'},
   radio:    {name:'Гоночное радио — инженер', clips:'dmitry', fx:'radio'},
-  brian:    {name:'Брайан — американец', clips:'brian'},
-  giuseppe: {name:'Джузеппе — итальянец', clips:'giuseppe'},
-  remy:     {name:'Реми — француз', clips:'remy'},
 };
 const curVoice = () => cfg.voice.startsWith('nn:') ? VOICES[cfg.voice.slice(3)] : null;
 if(cfg.voice.startsWith('nn:') && !VOICES[cfg.voice.slice(3)]) cfg.voice = DEF.voice;
@@ -396,38 +392,9 @@ const Clips = {                              // нейроголос: заран
     const c = this.audio(), fx = (curVoice() || {}).fx || '';
     if(this.fxIn && this.fxFor === fx) return this.fxIn;
     this.fxFor = fx;
-    return this.fxIn = fx === 'robot' ? robotChain(c, c.destination) : fx === 'radio' ? radioChain(c, c.destination) : c.destination;
+    return this.fxIn = fx === 'radio' ? radioChain(c, c.destination) : c.destination;
   }
 };
-// «Робот» — вокодер: голос управляет 16 полосами «пилы» на одной ноте, поэтому интонация ровная и металлическая,
-// как у ИИ из фантастики. Немного исходного голоса оставлено для разборчивости цифр. Обработка, а не чей-то голос.
-function robotChain(c, dest){
-  const input = c.createGain(), voc = c.createGain(), dry = c.createGain(), sum = c.createGain();
-  voc.gain.value = 7; dry.gain.value = .3;
-  const saw = c.createOscillator(); saw.type = 'sawtooth'; saw.frequency.value = 196; saw.start();
-  const saw2 = c.createOscillator(); saw2.type = 'sawtooth'; saw2.frequency.value = 393; saw2.start();   // октава выше — «стеклянный» призвук
-  const sawMix = c.createGain(); saw.connect(sawMix); const s2g = c.createGain(); s2g.gain.value = .35; saw2.connect(s2g); s2g.connect(sawMix);
-  const nb = c.createBuffer(1, c.sampleRate, c.sampleRate), nd = nb.getChannelData(0);
-  for(let i = 0; i < nd.length; i++) nd[i] = Math.random()*2 - 1;
-  const noise = c.createBufferSource(); noise.buffer = nb; noise.loop = true; noise.start();             // шипящие (с, ш, ч) — из шума
-  const rect = new Float32Array(1025); for(let i = 0; i < rect.length; i++) rect[i] = Math.abs(i/512 - 1);
-  for(const f of [140, 200, 270, 350, 450, 570, 720, 900, 1120, 1400, 1750, 2200, 2800, 3600, 4700, 6200]){
-    const m = c.createBiquadFilter(); m.type = 'bandpass'; m.frequency.value = f; m.Q.value = 5;
-    const r = c.createWaveShaper(); r.curve = rect;
-    const e = c.createBiquadFilter(); e.type = 'lowpass'; e.frequency.value = 35;
-    const k = c.createBiquadFilter(); k.type = 'bandpass'; k.frequency.value = f; k.Q.value = 5;
-    const v = c.createGain(); v.gain.value = 0;
-    input.connect(m); m.connect(r); r.connect(e); e.connect(v.gain);
-    (f >= 3000 ? noise : sawMix).connect(k); k.connect(v); v.connect(voc);
-  }
-  input.connect(dry);
-  const delay = c.createDelay(.05), fb = c.createGain(); delay.delayTime.value = .007; fb.gain.value = .35;   // лёгкий звон
-  voc.connect(sum); dry.connect(sum); sum.connect(delay); delay.connect(fb); fb.connect(delay);
-  const hp = c.createBiquadFilter(), comp = c.createDynamicsCompressor(), out = c.createGain();
-  hp.type = 'highpass'; hp.frequency.value = 160; out.gain.value = .7;
-  sum.connect(hp); delay.connect(hp); hp.connect(comp); comp.connect(out); out.connect(dest);
-  return input;
-}
 // «Гоночное радио»: узкая полоса как у рации, лёгкий перегруз и щелчки в начале и конце фразы
 function radioChain(c, dest){
   const input = c.createGain(), hp = c.createBiquadFilter(), lp = c.createBiquadFilter(), sh = c.createWaveShaper(), pk = c.createBiquadFilter(), out = c.createGain();
