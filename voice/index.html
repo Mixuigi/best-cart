@@ -23,6 +23,13 @@ body{margin:0;background:var(--bg);color:var(--fg);font:16px/1.35 'Roboto Conden
 .big{background:var(--panel);border:1px solid var(--line);border-radius:16px;padding:16px;display:flex;flex-direction:column;gap:6px}
 .kart{display:flex;justify-content:space-between;align-items:baseline;color:var(--dim);font-size:15px;text-transform:uppercase;letter-spacing:.06em}
 .kart b{color:var(--acc);font-size:28px;letter-spacing:0}
+.runbar{display:flex;justify-content:space-between;align-items:flex-end;gap:12px;padding-bottom:10px;margin-bottom:4px;border-bottom:1px solid var(--line)}
+.runbar small{color:var(--dim);font-size:13px;text-transform:uppercase;letter-spacing:.06em}
+.rn{display:flex;flex-direction:column;min-width:0}
+.rn b{font-size:22px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.ttg{display:flex;flex-direction:column;align-items:flex-end;flex:none}
+.ttg b{font:700 30px/1.1 'Roboto Mono',ui-monospace,monospace}
+.ttg.red b,.ttg.red small{color:var(--bad)} .ttg.warm b{color:var(--acc)} .ttg.fin b{color:var(--dim)}
 .lap{font:700 clamp(56px,19vw,96px)/1 'Roboto Mono',ui-monospace,monospace;letter-spacing:-.02em}
 .lap.pb{color:var(--ok)}
 .sub{display:flex;flex-wrap:wrap;gap:6px 16px;font-size:17px;color:var(--dim)}
@@ -71,6 +78,10 @@ select{max-width:60%}
   <div class="top"><span class="dot" id="dot"></span><span class="run" id="run">не подключено</span><span id="clock"></span></div>
 
   <div class="big">
+    <div class="runbar" id="runbar" hidden>
+      <div class="rn"><small id="raceName"></small><b id="runName"></b></div>
+      <div class="ttg" id="ttgBox"><small id="ttgLbl"></small><b id="ttg"></b></div>
+    </div>
     <div class="kart"><span>Карт</span><b id="kNum">—</b></div>
     <div class="lap" id="lap">-:--.--</div>
     <div class="sub">
@@ -153,7 +164,7 @@ select{max-width:60%}
 <script>
 /* Голос круга — озвучка времени круга своего карта по live-таймингу Kart Chrono.
    Протокол тот же, что в пит-радаре (../index.html): WebSocket, JSON-снимок + диффы. */
-const F = {POS:1, NUM:3, NAME:4, BEST:6, LAST1:10, LAPS:13, DIFF:14, TEAM:26, RACE_TIME:100, RUN_NAME:104, RACE_NAME:105, FLAG:106, RUN_GUID:111};
+const F = {POS:1, NUM:3, NAME:4, BEST:6, LAST1:10, LAPS:13, DIFF:14, TEAM:26, RACE_TIME:100, TIME_TO_GO:101, TOTAL_LAPS:102, LAPS_TO_GO:103, RUN_NAME:104, RACE_NAME:105, FLAG:106, FINISH_TYPE:108, RUN_GUID:111};
 const KC_WS = 'wss://kartchrono.com:9180';
 const STAYKI = 'da5ce291c3fbb8feb31d79bdee1a00b7';
 const TRACKS = [   // трассы с live-таймингом Kart Chrono (kartchrono.com/tracks.php), trackId — из их страниц /online/
@@ -399,7 +410,7 @@ document.addEventListener('visibilitychange', () => { if(document.visibilityStat
 const KC = {
   // status: off — не подключались/нет сети, wait — подключаемся, idle — сервер отвечает, но заезда нет, on — идут данные
   // epoch растёт с каждым снимком clear: номера кругов сравниваются только внутри одного снимка
-  ws:null, status:'off', comp:{}, primed:false, epoch:0, saidLeader:null, guid:null, seenFor:null, run:'', raceName:'', runName:'', flag:null, lostAt:0, saidLost:false, timer:{},
+  ws:null, status:'off', comp:{}, primed:false, rs:{}, epoch:0, saidLeader:null, guid:null, seenFor:null, run:'', raceName:'', runName:'', flag:null, lostAt:0, saidLost:false, timer:{},
   open(){
     if(this.ws && this.ws.readyState <= 1) return;
     let ws; try{ ws = new WebSocket(KC_WS); }catch(e){ return; }
@@ -435,6 +446,10 @@ const KC = {
     if(m[F.RUN_NAME] != null) this.runName = m[F.RUN_NAME];
     this.run = [this.raceName, this.runName].filter(Boolean).join(' · ');
     if(m[F.FLAG] != null) this.flag = m[F.FLAG];
+    // состояние заезда для «осталось»: как на табло Kart Chrono (doUpdateFinishParam в их dataPullerWS2.js)
+    if(m.command === 'clear') this.rs = {};
+    for(const k of [F.RACE_TIME, F.TIME_TO_GO, F.TOTAL_LAPS, F.LAPS_TO_GO, F.FINISH_TYPE]) if(m[k] != null) this.rs[k] = m[k];
+    if(m[F.RACE_TIME] != null || m[F.TIME_TO_GO] != null) this.rs.at = Date.now();
     for(const sec of ['results','pitlane']) if(m[sec]) for(const cid in m[sec]) this.diff(cid, m[sec][cid]);
     if(m.command === 'clear') this.primed = true;   // круги из снимка не озвучиваем, только новые
     // карт появляется в тайминге только после первого пересечения линии — сообщаем об этом голосом один раз за заезд
@@ -555,11 +570,34 @@ function renderBoard(){
     : `<tr><td colspan="7" class="hint" style="text-align:left;white-space:normal">${running ? 'Ждём данные: таблица заполнится, когда на треке идёт заезд.' : 'Нажми СТАРТ — табло подключится к таймингу.'}</td></tr>`;
 }
 
+const fmtClock = s => { s = Math.max(0, Math.round(s)); const h = Math.floor(s/3600), m = Math.floor(s%3600/60), x = String(s%60).padStart(2,'0'); return h ? h + ':' + String(m).padStart(2,'0') + ':' + x : m + ':' + x; };
+function runClock(){                        // [подпись, значение] или null
+  const r = KC.rs, ft = r[F.FINISH_TYPE];
+  // между обновлениями сервера время досчитываем сами, но не больше 10 с и не на красном флаге/финише
+  const dt = KC.flag !== 2 && KC.flag !== 3 && r.at ? Math.min(10, Math.floor((Date.now() - r.at)/1000)) : 0;
+  if(ft === 'finishByTime' && r[F.TIME_TO_GO] != null) return ['осталось', fmtClock(r[F.TIME_TO_GO] - dt)];
+  if(ft === 'finishByLaps' && r[F.TOTAL_LAPS] > 0){ let e = r[F.TOTAL_LAPS] - (r[F.LAPS_TO_GO] || 0); e = Math.min(r[F.TOTAL_LAPS], e + 1); return ['круг', e + '/' + r[F.TOTAL_LAPS]]; }
+  if(ft === 'extraLaps' && r[F.LAPS_TO_GO] != null) return ['осталось кругов', String(r[F.LAPS_TO_GO])];
+  if(r[F.RACE_TIME] != null) return ['прошло', fmtClock(r[F.RACE_TIME] + dt)];
+  return null;
+}
+function renderRun(){
+  const on = running && !Test.t && KC.status === 'on';
+  $('#runbar').hidden = !on;
+  if(!on) return;
+  $('#raceName').textContent = KC.raceName || 'Заезд';
+  $('#runName').textContent = KC.runName || '—';
+  const c = runClock(), box = $('#ttgBox');
+  box.className = 'ttg' + (KC.flag === 2 ? ' red' : KC.flag === 3 ? ' fin' : KC.flag === 4 ? ' warm' : '');
+  $('#ttgLbl').textContent = KC.flag === 2 ? 'красный флаг' : KC.flag === 3 ? 'финиш' : KC.flag === 4 ? 'разминка' : c ? c[0] : '';
+  $('#ttg').textContent = KC.flag === 3 ? '🏁' : c ? c[1] : '';
+}
 function ui(){
+  renderRun();
   const st = Test.t ? 'on' : KC.status;
   $('#dot').className = 'dot ' + (st === 'on' ? 'on' : st === 'off' ? '' : 'wait');
   $('#run').textContent = Test.t ? 'тест: фейковые круги' : !running ? 'остановлено' :
-    KC.status === 'on' ? (KC.run || 'тайминг на связи') + (KC.flag === 3 ? ' · финиш' : '') :
+    KC.status === 'on' ? (trackName(cfg.track) || 'тайминг на связи') :
     KC.status === 'idle' ? (trackName(cfg.track) || 'тайминг на связи') + ': активного заезда нет' : KC.status === 'wait' ? 'подключаюсь…' : 'нет связи, переподключаюсь…';
   $('#go').textContent = running ? '■ СТОП' : '▶ СТАРТ';
   $('#go').className = 'go' + (running ? ' stop' : '');
@@ -618,5 +656,5 @@ function bind(){
 }
 Voice.fill(); if('speechSynthesis' in window) speechSynthesis.onvoiceschanged = () => Voice.fill();
 loadVoice(); bind(); ui();
-setInterval(() => { const d = new Date(); $('#clock').textContent = d.toTimeString().slice(0,8); }, 1000);
+setInterval(() => { const d = new Date(); $('#clock').textContent = d.toTimeString().slice(0,8); renderRun(); }, 1000);
 </script>
