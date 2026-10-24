@@ -1,0 +1,361 @@
+<!doctype html>
+<html lang="ru">
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Голос круга</title>
+<meta name="theme-color" content="#0d1113">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Roboto+Condensed:wght@400;700&family=Roboto+Mono:wght@500;700&display=swap">
+<style>
+:root{
+  --bg:#0d1113; --panel:#161c1f; --line:#263034; --fg:#e8eef0; --dim:#8a989d;
+  --acc:#ffcc00; --ok:#36d07a; --bad:#ff5a4f; --btn:#222b2f;
+  color-scheme:dark;
+}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--fg);font:16px/1.35 'Roboto Condensed',system-ui,sans-serif;-webkit-tap-highlight-color:transparent}
+.wrap{max-width:560px;margin:0 auto;padding-block:12px 40px;padding-left:max(16px,env(safe-area-inset-left,0px));padding-right:max(16px,env(safe-area-inset-right,0px));display:flex;flex-direction:column;gap:14px}
+.top{display:flex;align-items:center;gap:10px;color:var(--dim);font-size:14px}
+.dot{width:12px;height:12px;border-radius:50%;background:var(--bad);flex:none}
+.dot.on{background:var(--ok)} .dot.wait{background:var(--acc)}
+.top .run{flex:1;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.big{background:var(--panel);border:1px solid var(--line);border-radius:16px;padding:16px;display:flex;flex-direction:column;gap:6px}
+.kart{display:flex;justify-content:space-between;align-items:baseline;color:var(--dim);font-size:15px;text-transform:uppercase;letter-spacing:.06em}
+.kart b{color:var(--acc);font-size:28px;letter-spacing:0}
+.lap{font:700 clamp(56px,19vw,96px)/1 'Roboto Mono',ui-monospace,monospace;letter-spacing:-.02em}
+.lap.pb{color:var(--ok)}
+.sub{display:flex;flex-wrap:wrap;gap:6px 16px;font-size:17px;color:var(--dim)}
+.sub b{color:var(--fg);font-family:'Roboto Mono',monospace;font-weight:500}
+button{font:inherit;color:var(--fg);background:var(--btn);border:1px solid var(--line);border-radius:12px;min-height:52px;padding:0 14px;cursor:pointer}
+button:active{transform:scale(.98)}
+.go{min-height:76px;font-size:24px;font-weight:700;letter-spacing:.04em;background:var(--acc);color:#141414;border:0}
+.go.stop{background:var(--btn);color:var(--fg);border:1px solid var(--line)}
+.row{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+.card{background:var(--panel);border:1px solid var(--line);border-radius:16px;padding:14px;display:flex;flex-direction:column;gap:12px}
+.card h2{margin:0;font-size:13px;text-transform:uppercase;letter-spacing:.08em;color:var(--dim);font-weight:700}
+label{display:flex;justify-content:space-between;align-items:center;gap:12px;min-height:44px}
+label span{min-width:0}
+input,select{font:inherit;color:var(--fg);background:var(--bg);border:1px solid var(--line);border-radius:10px;min-height:44px;padding:0 10px}
+input[type=checkbox]{width:28px;height:28px;min-height:0;accent-color:var(--acc)}
+input.num{width:110px;font:700 26px 'Roboto Mono',monospace;text-align:center}
+select{max-width:60%}
+.chips{display:flex;flex-wrap:wrap;gap:8px}
+.chip{min-height:44px;padding:0 12px;font-size:15px;border-radius:10px}
+.chip.sel{background:var(--acc);color:#141414;border-color:var(--acc)}
+.chip i{font-style:normal;color:var(--dim);margin-left:6px}
+.chip.sel i{color:#3b3b3b}
+.hint{color:var(--dim);font-size:14px;margin:0}
+.laps{display:flex;flex-direction:column;gap:2px;font:500 16px 'Roboto Mono',monospace}
+.laps div{display:flex;justify-content:space-between;padding:6px 2px;border-bottom:1px solid var(--line)}
+.laps .pb{color:var(--ok)}
+.warn{color:var(--acc)}
+</style>
+
+<div class="wrap">
+  <div class="top"><span class="dot" id="dot"></span><span class="run" id="run">не подключено</span><span id="clock"></span></div>
+
+  <div class="big">
+    <div class="kart"><span>Карт</span><b id="kNum">—</b></div>
+    <div class="lap" id="lap">-:--.--</div>
+    <div class="sub">
+      <span>Лучший <b id="best">—</b></span>
+      <span>Поз. <b id="pos">—</b></span>
+      <span>Кругов <b id="laps">—</b></span>
+    </div>
+    <div class="sub"><span id="leaderLbl">Лидер</span><b id="leader">—</b></div>
+  </div>
+
+  <button class="go" id="go">▶ СТАРТ</button>
+  <div class="row">
+    <button id="again">🔁 Повторить</button>
+    <button id="testV">🔊 Проверить голос</button>
+  </div>
+  <p class="hint" id="bgHint"></p>
+
+  <div class="card">
+    <h2>Мой карт</h2>
+    <label><span>Номер карта (в марафоне — номер команды)</span><input class="num" id="num" inputmode="numeric" autocomplete="off"></label>
+    <div class="chips" id="chips"></div>
+  </div>
+
+  <div class="card">
+    <h2>Что говорить</h2>
+    <label><span>Повторов времени круга</span><select id="rep"><option value="1">1</option><option value="2">2</option><option value="3">3</option></select></label>
+    <label><span>Время лидера</span><select id="leaderMode">
+      <option value="p1best">лучший круг лидера</option>
+      <option value="p1last">последний круг лидера</option>
+      <option value="best">лучший круг заезда</option>
+      <option value="off">не говорить</option>
+    </select></label>
+    <label><span>Позиция</span><input type="checkbox" id="sayPos"></label>
+    <label><span>«Лучший» при личном рекорде</span><input type="checkbox" id="sayPb"></label>
+    <label><span>Предупреждать о потере связи</span><input type="checkbox" id="sayConn"></label>
+    <label><span>Голос</span><select id="voice"></select></label>
+    <label><span>Скорость речи</span><select id="rate"><option value="0.9">медленно</option><option value="1">обычно</option><option value="1.15">быстрее</option><option value="1.3">быстро</option></select></label>
+  </div>
+
+  <div class="card">
+    <h2>Работа в кармане</h2>
+    <label><span>Фоновый звук (держит страницу живой при выключенном экране)</span><select id="keep"><option value="2">тихий шум</option><option value="1">почти тишина</option><option value="0">выкл</option></select></label>
+    <p class="hint">Перед заездом: нажать СТАРТ, заблокировать экран, телефон в карман. Кнопка паузы на наушниках повторяет последний круг. В настройках Android для Chrome: Батарея → «Без ограничений».</p>
+    <button id="test">🧪 Тест в кармане: фейковый круг каждые 20 с</button>
+  </div>
+
+  <div class="card">
+    <h2>Круги</h2>
+    <div class="laps" id="list"><p class="hint">Пока нет кругов</p></div>
+  </div>
+
+  <div class="card">
+    <h2>Тайминг</h2>
+    <label><span>trackId (Стайки по умолчанию)</span><input id="track" style="width:60%" autocomplete="off"></label>
+    <button id="stayki">Вернуть Стайки</button>
+  </div>
+</div>
+
+<script>
+/* Голос круга — озвучка времени круга своего карта по live-таймингу Kart Chrono.
+   Протокол тот же, что в пит-радаре (../index.html): WebSocket, JSON-снимок + диффы. */
+const F = {POS:1, NUM:3, NAME:4, BEST:6, LAST1:10, LAPS:13, TEAM:26, RACE_TIME:100, RUN_NAME:104, RACE_NAME:105, FLAG:106, RUN_GUID:111};
+const KC_WS = 'wss://kartchrono.com:9180';
+const STAYKI = 'da5ce291c3fbb8feb31d79bdee1a00b7';
+const KEY = 'lapvoice.v1';
+const DEF = {num:'', track:STAYKI, rep:2, leaderMode:'p1best', sayPos:true, sayPb:true, sayConn:true, voice:'', rate:1, keep:2};
+const $ = s => document.querySelector(s);
+
+let cfg = {...DEF};
+try{ cfg = {...DEF, ...JSON.parse(localStorage.getItem(KEY) || '{}')}; }catch(e){}
+function saveCfg(){ try{ localStorage.setItem(KEY, JSON.stringify(cfg)); }catch(e){} }
+
+let running = false, laps = [], last = null;
+
+/* ---------- Числа словами (чтобы TTS читал одинаково на любом движке) ---------- */
+const U = ['ноль','один','два','три','четыре','пять','шесть','семь','восемь','девять','десять','одиннадцать','двенадцать','тринадцать','четырнадцать','пятнадцать','шестнадцать','семнадцать','восемнадцать','девятнадцать'];
+const T = ['','','двадцать','тридцать','сорок','пятьдесят','шестьдесят','семьдесят','восемьдесят','девяносто'];
+function words(n, fem){
+  const u1 = k => fem && k === 1 ? 'одна' : fem && k === 2 ? 'две' : U[k];
+  if(n >= 100 || n < 0 || n !== Math.floor(n)) return String(n);
+  if(n < 20) return u1(n);
+  return T[Math.floor(n/10)] + (n % 10 ? ' ' + u1(n % 10) : '');
+}
+const pair = n => n < 10 ? 'ноль ' + U[n] : words(n);
+function lapWords(ms){                       // 64326 → «одна, ноль четыре, тридцать два» (сотые отбрасываются, как на табло)
+  const cs = Math.floor(ms/10), m = Math.floor(cs/6000), s = Math.floor(cs % 6000 / 100), h = cs % 100;
+  return (m ? words(m, true) + ', ' + pair(s) : words(s)) + ', ' + pair(h);
+}
+function fmt(ms){
+  if(!(ms > 0)) return '—';
+  const cs = Math.floor(ms/10), m = Math.floor(cs/6000), s = Math.floor(cs % 6000 / 100), h = cs % 100;
+  return (m ? m + ':' + String(s).padStart(2,'0') : s) + '.' + String(h).padStart(2,'0');
+}
+
+/* ---------- Голос ---------- */
+const Voice = {
+  keep: [],                                  // ссылки на фразы: Chrome на Android иначе теряет их до озвучки
+  pick(){
+    const vs = speechSynthesis.getVoices().filter(v => /^ru/i.test(v.lang));
+    return vs.find(v => v.voiceURI === cfg.voice) || vs[0] || null;
+  },
+  say(parts){
+    if(!('speechSynthesis' in window)) return;
+    const v = this.pick();
+    for(const p of parts){
+      const u = new SpeechSynthesisUtterance(p);
+      u.lang = 'ru-RU'; if(v) u.voice = v; u.rate = +cfg.rate; u.volume = 1;
+      u.onend = u.onerror = () => { this.keep = this.keep.filter(x => x !== u); };
+      this.keep.push(u); speechSynthesis.speak(u);
+    }
+    speechSynthesis.resume();
+  },
+  fill(){
+    const sel = $('#voice'), vs = speechSynthesis.getVoices().filter(v => /^ru/i.test(v.lang));
+    sel.innerHTML = vs.length ? vs.map(v => `<option value="${v.voiceURI}">${v.name}</option>`).join('') : '<option value="">системный</option>';
+    if(vs.some(v => v.voiceURI === cfg.voice)) sel.value = cfg.voice;
+  }
+};
+if('speechSynthesis' in window){ Voice.fill(); speechSynthesis.onvoiceschanged = () => Voice.fill(); }
+
+function announce(lap){
+  const t = lapWords(lap.lt), parts = [];
+  for(let i = 0; i < +cfg.rep; i++) parts.push(t + '.');
+  if(cfg.sayPb && lap.pb) parts.push('Лучший.');
+  if(cfg.sayPos && lap.pos > 0) parts.push('Позиция ' + words(lap.pos) + '.');
+  if(lap.me1 && cfg.leaderMode !== 'off' && cfg.leaderMode !== 'best') parts.push('Ты лидер.');
+  else if(lap.leader > 0) parts.push('Лидер: ' + lapWords(lap.leader) + '.');
+  Voice.say(parts);
+}
+
+/* ---------- Фоновый звук + Media Session: страница не засыпает при выключенном экране ---------- */
+const Keep = {
+  a: null,
+  wav(amp){                                  // 2 с белого шума на 8 кГц, 16 бит
+    const sr = 8000, n = sr*2, b = new ArrayBuffer(44 + n*2), d = new DataView(b);
+    const str = (o, s) => { for(let i = 0; i < s.length; i++) d.setUint8(o+i, s.charCodeAt(i)); };
+    str(0,'RIFF'); d.setUint32(4, 36 + n*2, true); str(8,'WAVEfmt '); d.setUint32(16,16,true); d.setUint16(20,1,true); d.setUint16(22,1,true);
+    d.setUint32(24,sr,true); d.setUint32(28,sr*2,true); d.setUint16(32,2,true); d.setUint16(34,16,true); str(36,'data'); d.setUint32(40,n*2,true);
+    for(let i = 0; i < n; i++) d.setInt16(44 + i*2, Math.round((Math.random()*2 - 1) * amp), true);
+    return URL.createObjectURL(new Blob([b], {type:'audio/wav'}));
+  },
+  start(){
+    this.stop();
+    if(+cfg.keep === 0) return;
+    this.a = new Audio(this.wav(+cfg.keep === 2 ? 90 : 25));
+    this.a.loop = true;
+    this.a.play().catch(() => {});
+    if('mediaSession' in navigator){
+      const again = () => { if(this.a) this.a.play().catch(()=>{}); repeatLast(); };
+      for(const k of ['play','pause','stop','nexttrack','previoustrack']) try{ navigator.mediaSession.setActionHandler(k, again); }catch(e){}
+      navigator.mediaSession.playbackState = 'playing';
+      this.meta();
+    }
+  },
+  stop(){ if(this.a){ this.a.pause(); URL.revokeObjectURL(this.a.src); this.a = null; } },
+  meta(){
+    if(!('mediaSession' in navigator) || !this.a) return;
+    navigator.mediaSession.metadata = new MediaMetadata({title: last ? fmt(last.lt) + (last.pos ? '  P' + last.pos : '') : 'Ждём круг', artist: 'Карт ' + (cfg.num || '?'), album: 'Голос круга'});
+  }
+};
+
+let wake = null;
+async function lockScreenOn(){ try{ if(running && document.visibilityState === 'visible' && 'wakeLock' in navigator) wake = await navigator.wakeLock.request('screen'); }catch(e){} }
+document.addEventListener('visibilitychange', () => { if(document.visibilityState === 'visible'){ lockScreenOn(); if(running && Keep.a && Keep.a.paused) Keep.a.play().catch(()=>{}); } });
+
+/* ---------- Kart Chrono ---------- */
+const KC = {
+  ws:null, status:'off', comp:{}, primed:false, run:'', raceName:'', runName:'', flag:null, lostAt:0, saidLost:false, timer:{},
+  open(){
+    if(this.ws && this.ws.readyState <= 1) return;
+    let ws; try{ ws = new WebSocket(KC_WS); }catch(e){ return; }
+    this.ws = ws; this.status = 'wait'; ui();
+    ws.onopen = () => { ws.send(JSON.stringify({trackId: cfg.track || STAYKI})); this.status = 'open'; ui();
+      if(this.saidLost && cfg.sayConn) Voice.say(['Связь с таймингом есть.']); this.saidLost = false; this.lostAt = 0; };
+    ws.onmessage = e => { if(typeof e.data === 'string'){ let m; try{ m = JSON.parse(e.data); }catch(x){ return; } this.json(m); } };
+    ws.onclose = () => {
+      if(this.ws === ws) this.ws = null;
+      this.status = 'off'; ui();
+      if(!running) return;
+      if(!this.lostAt) this.lostAt = Date.now();
+      if(cfg.sayConn && !this.saidLost && Date.now() - this.lostAt > 15000){ this.saidLost = true; Voice.say(['Нет связи с таймингом.']); }
+      setTimeout(() => { if(running) this.open(); }, 3000);
+    };
+    ws.onerror = () => {};
+  },
+  close(){ const ws = this.ws; this.ws = null; if(ws) try{ ws.close(); }catch(e){} this.status = 'off'; },
+  json(m){
+    this.status = 'on';
+    if(m.command === 'clear'){ this.comp = {}; this.primed = false; }
+    if(m[F.RACE_NAME] != null) this.raceName = m[F.RACE_NAME];
+    if(m[F.RUN_NAME] != null) this.runName = m[F.RUN_NAME];
+    this.run = [this.raceName, this.runName].filter(Boolean).join(' · ');
+    if(m[F.FLAG] != null) this.flag = m[F.FLAG];
+    for(const sec of ['results','pitlane']) if(m[sec]) for(const cid in m[sec]) this.diff(cid, m[sec][cid]);
+    if(m.command === 'clear') this.primed = true;   // круги из снимка не озвучиваем, только новые
+    ui();
+  },
+  diff(cid, d){
+    const prev = this.comp[cid] || {}, c = this.comp[cid] = {...prev, ...d};
+    if(!this.primed || String(c[F.NUM] ?? '') !== String(cfg.num)) return;
+    if(!(F.LAPS in d && d[F.LAPS] !== prev[F.LAPS]) && !(F.LAST1 in d && d[F.LAST1] !== prev[F.LAST1])) return;
+    // поля круга, позиции и лидера могут прийти разными диффами — ждём, пока всё доедет
+    clearTimeout(this.timer[cid]);
+    this.timer[cid] = setTimeout(() => this.lap(cid), 700);
+  },
+  lap(cid){
+    const c = this.comp[cid]; if(!c) return;
+    const lt = c[F.LAST1], n = c[F.LAPS];
+    if(!(lt > 0)) return;
+    if(last && last.cid === cid && last.run === this.run && (n != null ? n <= last.n : lt === last.lt)) return;
+    const all = Object.values(this.comp), p1 = all.find(x => x[F.POS] === 1);
+    let leader = null;
+    if(cfg.leaderMode === 'best') leader = Math.min(...all.map(x => x[F.BEST] > 0 ? x[F.BEST] : Infinity));
+    else if(p1 && p1 !== c) leader = cfg.leaderMode === 'p1last' ? p1[F.LAST1] : p1[F.BEST];
+    const lap = {cid, run:this.run, n, lt, pos:c[F.POS], best:c[F.BEST], pb: c[F.BEST] > 0 && lt <= c[F.BEST] && (n != null ? n > 1 : laps.some(l => l.run === this.run)),
+      leader: isFinite(leader) ? leader : null, me1: p1 === c, at: Date.now()};
+    pushLap(lap);
+  }
+};
+
+function pushLap(lap){
+  last = lap; laps.unshift(lap); if(laps.length > 60) laps.pop();
+  announce(lap); Keep.meta(); ui();
+}
+function repeatLast(){ if(last) announce(last); else Voice.say(['Кругов пока нет.']); }
+
+/* ---------- Тест: фейковые круги ---------- */
+const Test = {
+  t:null, n:0,
+  toggle(){
+    if(this.t){ clearInterval(this.t); this.t = null; ui(); return; }
+    if(!running) start();
+    this.n = 0;
+    this.t = setInterval(() => {
+      this.n++;
+      const lt = 63500 + Math.floor(Math.random()*4000), best = Math.min(lt, ...laps.filter(l => l.run === 'тест').map(l => l.lt));
+      pushLap({cid:'test', run:'тест', n:this.n, lt, pos:1 + Math.floor(Math.random()*5), best, pb: lt === best && this.n > 1, leader: 63412, me1:false, at:Date.now()});
+    }, 20000);
+    ui();
+  }
+};
+
+/* ---------- Старт/стоп ---------- */
+function start(){
+  running = true;
+  Keep.start();                       // в обработчике нажатия — иначе браузер не даст играть звук
+  Voice.say([cfg.num ? 'Слежу за картом ' + words(+cfg.num || 0) + '.' : 'Укажи номер карта.']);
+  KC.open(); lockScreenOn(); ui();
+}
+function stop(){
+  running = false; KC.close(); Keep.stop();
+  if(Test.t){ clearInterval(Test.t); Test.t = null; }
+  try{ wake && wake.release(); }catch(e){} wake = null;
+  if('speechSynthesis' in window) speechSynthesis.cancel();
+  ui();
+}
+
+/* ---------- UI ---------- */
+function ui(){
+  const st = Test.t ? 'on' : KC.status;
+  $('#dot').className = 'dot ' + (st === 'on' ? 'on' : st === 'off' ? '' : 'wait');
+  $('#run').textContent = Test.t ? 'тест: фейковые круги' : !running ? 'остановлено' :
+    KC.status === 'on' ? (KC.run || 'тайминг на связи') + (KC.flag === 3 ? ' · финиш' : '') :
+    KC.status === 'open' ? 'подключено, активного заезда нет' : KC.status === 'wait' ? 'подключаюсь…' : 'нет связи, переподключаюсь…';
+  $('#go').textContent = running ? '■ СТОП' : '▶ СТАРТ';
+  $('#go').className = 'go' + (running ? ' stop' : '');
+  $('#test').textContent = Test.t ? '■ Остановить тест' : '🧪 Тест в кармане: фейковый круг каждые 20 с';
+  $('#kNum').textContent = cfg.num || '—';
+  const me = Object.values(KC.comp).find(c => String(c[F.NUM]) === String(cfg.num));
+  $('#lap').textContent = last ? fmt(last.lt) : me && me[F.LAST1] > 0 ? fmt(me[F.LAST1]) : '-:--.--';
+  $('#lap').className = 'lap' + (last && last.pb ? ' pb' : '');
+  $('#best').textContent = fmt(me ? me[F.BEST] : last && last.best);
+  $('#pos').textContent = (me ? me[F.POS] : last && last.pos) || '—';
+  $('#laps').textContent = (me ? me[F.LAPS] : last && last.n) ?? '—';
+  $('#leaderLbl').textContent = {p1best:'Лидер, лучший', p1last:'Лидер, последний', best:'Лучший заезда', off:'Лидер'}[cfg.leaderMode];
+  $('#leader').textContent = last && last.me1 ? 'ты лидер' : fmt(last && last.leader);
+  $('#bgHint').innerHTML = running && +cfg.keep === 0 ? '<span class="warn">Фоновый звук выключен — при выключенном экране браузер может заснуть.</span>' : '';
+  const chips = Object.values(KC.comp).filter(c => c[F.NUM] != null && c[F.NUM] !== '')
+    .sort((a, b) => (a[F.POS] || 99) - (b[F.POS] || 99));
+  $('#chips').innerHTML = chips.length
+    ? chips.map(c => `<button class="chip${String(c[F.NUM]) === String(cfg.num) ? ' sel' : ''}" data-n="${esc(c[F.NUM])}">${esc(c[F.NUM])}<i>${esc(c[F.TEAM] || c[F.NAME] || '')}</i></button>`).join('')
+    : '<p class="hint">Участники заезда появятся здесь после СТАРТ — можно выбрать себя нажатием.</p>';
+  $('#list').innerHTML = laps.length
+    ? laps.slice(0, 30).map(l => `<div class="${l.pb ? 'pb' : ''}"><span>${l.n ?? ''}</span><span>${fmt(l.lt)}</span><span>${l.pos ? 'P' + l.pos : ''}</span></div>`).join('')
+    : '<p class="hint">Пока нет кругов</p>';
+}
+const esc = s => String(s ?? '').replace(/[&<>"]/g, ch => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[ch]));
+
+function bind(){
+  const map = {rep:'rep', leaderMode:'leaderMode', voice:'voice', rate:'rate', keep:'keep', track:'track'};
+  for(const id in map){ const el = $('#' + id); el.value = cfg[map[id]]; el.onchange = () => { cfg[map[id]] = el.value; saveCfg(); if(id === 'keep' && running) Keep.start(); if(id === 'track' && running){ KC.close(); KC.comp = {}; KC.open(); } ui(); }; }
+  for(const id of ['sayPos','sayPb','sayConn']){ const el = $('#' + id); el.checked = cfg[id]; el.onchange = () => { cfg[id] = el.checked; saveCfg(); }; }
+  const num = $('#num'); num.value = cfg.num;
+  num.oninput = () => { cfg.num = num.value.trim(); saveCfg(); last = null; ui(); };
+  $('#chips').onclick = e => { const b = e.target.closest('[data-n]'); if(!b) return; cfg.num = b.dataset.n; num.value = cfg.num; saveCfg(); last = null; ui(); };
+  $('#go').onclick = () => running ? stop() : start();
+  $('#again').onclick = repeatLast;
+  $('#testV').onclick = () => Voice.say([lapWords(64326) + '.', 'Лидер: ' + lapWords(63412) + '.']);
+  $('#test').onclick = () => Test.toggle();
+  $('#stayki').onclick = () => { cfg.track = STAYKI; $('#track').value = STAYKI; saveCfg(); if(running){ KC.close(); KC.comp = {}; KC.open(); } };
+}
+bind(); ui();
+setInterval(() => { const d = new Date(); $('#clock').textContent = d.toTimeString().slice(0,8); }, 1000);
+</script>
