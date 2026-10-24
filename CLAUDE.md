@@ -83,3 +83,13 @@ node -e "const s=require('fs').readFileSync('index.html','utf8');const m=[...s.m
 - Kart Chrono сразу закрывает WebSocket, когда на треке нет активного заезда: это статус `idle`, не обрыв связи (переподключение раз в 10 с, голосом не сообщается).
 - Работа при выключенном экране: зацикленный тихий шум (`Keep`) + Media Session; кнопка на наушниках повторяет последний круг. Надёжность фона на Android не гарантирована — если браузер засыпает, следующий шаг — нативное Android-приложение (foreground service + TextToSpeech).
 - Настройки в `localStorage['lapvoice.v1']`.
+
+## Android-обёртка `android/` (APK)
+
+Зачем: Chrome на Android теряет мобильный интернет через 15–20 с после выключения экрана (на Wi-Fi работает), и страница в кармане замолкает. APK открывает ту же страницу `voice/` в WebView и держит фоновую службу `KeepAliveService` (foreground service типа mediaPlayback + partial wake lock + Wi-Fi lock) — так у процесса остаётся сеть.
+
+- Логика остаётся на сайте: правки страницы приезжают в приложение через Pages, пересобирать APK не нужно.
+- Мост JS → Android: `window.GolosApp` (`speak`, `stopSpeak`, `setStatus`). Системный голос в приложении идёт через Android TextToSpeech (в WebView нет Web Speech). Кнопки наушников ловит нативная MediaSession и зовёт `repeatLast()` на странице.
+- Сборка — GitHub Actions `.github/workflows/apk.yml` при пуше в `android/**`; APK выкладывается в релиз `apk`: https://github.com/Mixuigi/best-cart/releases/download/apk/golos-kruga.apk. При ошибке лог сборки уходит в релиз `apk-log` (`build-log.txt`) — его можно скачать без авторизации.
+- Подпись: `android/app/sign.p12` (пароль в `app/build.gradle`) закоммичен намеренно, чтобы новые сборки ставились поверх старых. При изменениях поднимать `versionCode`.
+- Запасной вариант без APK — «карманный режим» на странице: экран не гаснет (wake lock), но чёрный и игнорирует касания.
