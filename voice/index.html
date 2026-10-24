@@ -266,6 +266,10 @@ const Keep = {
     this.a = new Audio(this.wav(+cfg.keep === 2 ? 90 : 25));
     this.a.loop = true;
     this.a.play().catch(() => {});
+    // другое приложение (звонок, Discord) может забрать звук и поставить фон на паузу — тогда браузер
+    // в фоне засыпает. Мягко возобновляем, не чаще раза в 10 с, чтобы не воевать за звук.
+    const a = this.a;
+    a.onpause = () => setTimeout(() => { if(running && this.a === a && a.paused) a.play().catch(() => {}); }, 10000);
     if('mediaSession' in navigator){
       const again = () => { if(this.a) this.a.play().catch(()=>{}); repeatLast(); };
       for(const k of ['play','pause','stop','nexttrack','previoustrack']) try{ navigator.mediaSession.setActionHandler(k, again); }catch(e){}
