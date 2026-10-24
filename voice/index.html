@@ -61,6 +61,7 @@ select{max-width:60%}
       <span>Лучший <b id="best">—</b></span>
       <span>Поз. <b id="pos">—</b></span>
       <span>Кругов <b id="laps">—</b></span>
+      <span>Отст. <b id="gap">—</b></span>
     </div>
     <div class="sub"><span id="leaderLbl">Лидер</span><b id="leader">—</b></div>
   </div>
@@ -92,6 +93,7 @@ select{max-width:60%}
       <option value="each">после каждого круга</option>
     </select></label>
     <label><span>Позиция</span><input type="checkbox" id="sayPos"></label>
+    <label><span>Отставание от лидера</span><input type="checkbox" id="sayGap"></label>
     <label><span>«Лучший» при личном рекорде</span><input type="checkbox" id="sayPb"></label>
     <label><span>Предупреждать о потере связи</span><input type="checkbox" id="sayConn"></label>
     <label><span>Голос</span><select id="voice"></select></label>
@@ -120,11 +122,11 @@ select{max-width:60%}
 <script>
 /* Голос круга — озвучка времени круга своего карта по live-таймингу Kart Chrono.
    Протокол тот же, что в пит-радаре (../index.html): WebSocket, JSON-снимок + диффы. */
-const F = {POS:1, NUM:3, NAME:4, BEST:6, LAST1:10, LAPS:13, TEAM:26, RACE_TIME:100, RUN_NAME:104, RACE_NAME:105, FLAG:106, RUN_GUID:111};
+const F = {POS:1, NUM:3, NAME:4, BEST:6, LAST1:10, LAPS:13, DIFF:14, TEAM:26, RACE_TIME:100, RUN_NAME:104, RACE_NAME:105, FLAG:106, RUN_GUID:111};
 const KC_WS = 'wss://kartchrono.com:9180';
 const STAYKI = 'da5ce291c3fbb8feb31d79bdee1a00b7';
 const KEY = 'lapvoice.v1';
-const DEF = {num:'', track:STAYKI, rep:2, leaderMode:'p1best', leaderWhen:'new', sayPos:true, sayPb:true, sayConn:true, voice:'nn:svetlana', rate:1, keep:2};
+const DEF = {num:'', track:STAYKI, rep:2, leaderMode:'p1best', leaderWhen:'new', sayPos:true, sayGap:false, sayPb:true, sayConn:true, voice:'nn:svetlana', rate:1, keep:2};
 const $ = s => document.querySelector(s);
 
 let cfg = {...DEF};
@@ -147,7 +149,7 @@ function words(n, fem){
    ',' — короткая пауза, '.' — конец фразы. Нейроголос склеивает mp3 из snd/<голос>/<ключ>.mp3
    (генерирует make_clips.py), системный голос читает тот же текст. */
 const PHR = {leader:'Лидер:', pos:'Позиция', best:'Лучший!', youlead:'Ты лидер!', lost:'Нет связи с таймингом.',
-  back:'Связь с таймингом есть.', watch:'Слежу за картом', seen:'Вижу карт', nolaps:'Кругов пока нет.', setnum:'Укажи номер карта.'};
+  back:'Связь с таймингом есть.', watch:'Слежу за картом', seen:'Вижу карт', gap:'Отставание', lap1:'круг', lap2:'круга', lap5:'кругов', nolaps:'Кругов пока нет.', setnum:'Укажи номер карта.'};
 const CLIP_KEYS = [...Array(100).keys()].map(i => 'n' + i).concat([...Array(10).keys()].map(i => 'z' + i), ['f1','f2'], Object.keys(PHR));
 function keyText(k){
   if(PHR[k]) return PHR[k];
@@ -160,6 +162,15 @@ function lapKeys(ms){                        // 64326 → «одна, ноль �
   const cs = Math.floor(ms/10), m = Math.floor(cs/6000), s = Math.floor(cs % 6000 / 100), h = cs % 100;
   return (m ? [m === 1 ? 'f1' : m === 2 ? 'f2' : numKey(m) || 'n0', ',', pairKey(s)] : ['n' + s]).concat([',', pairKey(h)]);
 }
+// Поле 14 (DIFF) как на табло Kart Chrono: >0 — отставание в мс, от -9999 до -1 — отставание в кругах
+function gapKeys(g){
+  if(g > 0) return ['gap', ',', ...lapKeys(g), '.'];
+  if(g < 0 && g > -10000){ const n = -g, m = n % 100, k = m % 10;
+    const w = m >= 11 && m <= 14 ? 'lap5' : k === 1 ? 'lap1' : k >= 2 && k <= 4 ? 'lap2' : 'lap5';
+    return numKey(n) ? ['gap', ',', numKey(n), w, '.'] : []; }
+  return [];
+}
+const fmtGap = g => g > 0 ? '+' + fmt(g) : g < 0 && g > -10000 ? '+' + (-g) + ' кр.' : '—';
 function fmt(ms){
   if(!(ms > 0)) return '—';
   const cs = Math.floor(ms/10), m = Math.floor(cs/6000), s = Math.floor(cs % 6000 / 100), h = cs % 100;
@@ -243,6 +254,7 @@ function announce(lap){
   for(let i = 0; i < +cfg.rep; i++) seq.push(...t, '.');
   if(cfg.sayPb && lap.pb) seq.push('best', '.');
   if(cfg.sayPos && numKey(lap.pos) && lap.pos > 0) seq.push('pos', numKey(lap.pos), '.');
+  if(cfg.sayGap && lap.pos !== 1) seq.push(...gapKeys(lap.gap));
   if(lap.sayLeader === false || cfg.leaderMode === 'off');
   else if(lap.me1) seq.push('youlead', '.');
   else if(lap.leader > 0) seq.push('leader', ',', ...lapKeys(lap.leader), '.');
@@ -361,7 +373,7 @@ const KC = {
     const L = this.saidLeader, improved = cfg.leaderMode === 'p1last' ? p1 && p1[F.LAST1] > 0 && p1[F.LAST1] <= p1[F.BEST] && !(L && L.val === leader) : leader > 0 && !(leader >= L?.val);
     const fresh = !L || L.epoch !== this.epoch || L.lid !== lid || improved;
     if(fresh) this.saidLeader = {epoch:this.epoch, lid, val:leader};
-    const lap = {cid, epoch:this.epoch, run:this.run, n, lt, pos:c[F.POS], best:c[F.BEST], pb: c[F.BEST] > 0 && lt <= c[F.BEST] && (n != null ? n > 1 : laps.some(l => l.run === this.run)),
+    const lap = {cid, epoch:this.epoch, run:this.run, n, lt, pos:c[F.POS], gap:c[F.DIFF], best:c[F.BEST], pb: c[F.BEST] > 0 && lt <= c[F.BEST] && (n != null ? n > 1 : laps.some(l => l.run === this.run)),
       leader: leader > 0 ? leader : null, me1: cfg.leaderMode === 'best' ? lid === cid : p1 === c, sayLeader: cfg.leaderWhen !== 'new' || fresh, at: Date.now()};
     pushLap(lap);
   }
@@ -422,6 +434,7 @@ function ui(){
   $('#best').textContent = fmt(me ? me[F.BEST] : last && last.best);
   $('#pos').textContent = (me ? me[F.POS] : last && last.pos) || '—';
   $('#laps').textContent = (me ? me[F.LAPS] : last && last.n) ?? '—';
+  $('#gap').textContent = fmtGap(me ? me[F.DIFF] : last && last.gap);
   $('#leaderLbl').textContent = {p1best:'Лидер, лучший', p1last:'Лидер, последний', best:'Лучший заезда', off:'Лидер'}[cfg.leaderMode];
   $('#leader').textContent = last && last.me1 ? 'ты лидер' : fmt(last && last.leader);
   $('#bgHint').innerHTML = cfg.voice.startsWith('nn:') && !Voice.neural() ? '<span class="warn">Загружаю нейроголос… пока говорит системный голос.</span>'
@@ -440,7 +453,7 @@ const esc = s => String(s ?? '').replace(/[&<>"]/g, ch => ({'&':'&amp;','<':'&lt
 function bind(){
   const map = {rep:'rep', leaderMode:'leaderMode', leaderWhen:'leaderWhen', voice:'voice', rate:'rate', keep:'keep', track:'track'};
   for(const id in map){ const el = $('#' + id); el.value = cfg[map[id]]; el.onchange = () => { cfg[map[id]] = el.value; saveCfg(); if(id === 'keep' && running) Keep.start(); if(id === 'voice') loadVoice(); if(id === 'track' && running){ KC.close(); KC.comp = {}; KC.open(); } ui(); }; }
-  for(const id of ['sayPos','sayPb','sayConn']){ const el = $('#' + id); el.checked = cfg[id]; el.onchange = () => { cfg[id] = el.checked; saveCfg(); }; }
+  for(const id of ['sayPos','sayGap','sayPb','sayConn']){ const el = $('#' + id); el.checked = cfg[id]; el.onchange = () => { cfg[id] = el.checked; saveCfg(); }; }
   const num = $('#num'); num.value = cfg.num;
   num.oninput = () => { cfg.num = num.value.trim(); saveCfg(); last = null; ui(); };
   $('#chips').onclick = e => { const b = e.target.closest('[data-n]'); if(!b) return; cfg.num = b.dataset.n; num.value = cfg.num; saveCfg(); last = null; ui(); };
