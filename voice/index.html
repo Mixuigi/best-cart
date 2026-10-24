@@ -140,7 +140,7 @@ select{max-width:60%}
     </select></label>
     <label><span>Позиция</span><input type="checkbox" id="sayPos"></label>
     <label><span>Отставание от лидера</span><input type="checkbox" id="sayGap"></label>
-    <label><span>«Лучший» при личном рекорде</span><input type="checkbox" id="sayPb"></label>
+    <label><span>«Твой лучший круг» при личном рекорде</span><input type="checkbox" id="sayPb"></label>
     <label><span>Предупреждать о потере связи</span><input type="checkbox" id="sayConn"></label>
     <label><span>Голос</span><select id="voice"></select></label>
     <label><span>Темп (у нейроголоса — только паузы)</span><select id="rate"><option value="0.9">медленно</option><option value="1">обычно</option><option value="1.15">быстрее</option><option value="1.3">быстро</option></select></label>
@@ -317,7 +317,7 @@ function words(n, fem){
 /* Фраза = список ключей фрагментов: n0..n99 числа, z0..z9 «ноль N», f1/f2 «одна/две», слова из PHR;
    ',' — короткая пауза, '.' — конец фразы. Нейроголос склеивает mp3 из snd/<голос>/<ключ>.mp3
    (генерирует make_clips.py), системный голос читает тот же текст. */
-const PHR = {leader:'Лидер:', pos:'Позиция', best:'Лучший!', youlead:'Ты лидер!', lost:'Нет связи с таймингом.',
+const PHR = {leader:'Лидер:', ldbest:'Лучший круг лидера:', ldlast:'Последний круг лидера:', runbest:'Лучший круг заезда:', mybest:'Твой лучший круг!', pos:'Позиция', best:'Лучший!', youlead:'Ты лидер!', lost:'Нет связи с таймингом.',
   back:'Связь с таймингом есть.', watch:'Слежу за картом', seen:'Вижу карт', gap:'Отставание', lap1:'круг', lap2:'круга', lap5:'кругов', nolaps:'Кругов пока нет.', setnum:'Укажи номер карта.'};
 const CLIP_KEYS = [...Array(100).keys()].map(i => 'n' + i).concat([...Array(10).keys()].map(i => 'z' + i), ['f1','f2'], Object.keys(PHR));
 function keyText(k){
@@ -425,12 +425,12 @@ function loadVoice(){ if(cfg.voice.startsWith('nn:')) Clips.load(cfg.voice.slice
 function announce(lap){
   const t = lapKeys(lap.lt), seq = [];
   for(let i = 0; i < +cfg.rep; i++) seq.push(...t, '.');
-  if(cfg.sayPb && lap.pb) seq.push('best', '.');
+  if(cfg.sayPb && lap.pb) seq.push('mybest', '.');
   if(cfg.sayPos && numKey(lap.pos) && lap.pos > 0) seq.push('pos', numKey(lap.pos), '.');
   if(cfg.sayGap && lap.pos !== 1) seq.push(...gapKeys(lap.gap));
   if(lap.sayLeader === false || cfg.leaderMode === 'off');
   else if(lap.me1) seq.push('youlead', '.');
-  else if(lap.leader > 0) seq.push('leader', ',', ...lapKeys(lap.leader), '.');
+  else if(lap.leader > 0) seq.push({p1best:'ldbest', p1last:'ldlast', best:'runbest'}[cfg.leaderMode] || 'leader', ',', ...lapKeys(lap.leader), '.');
   Voice.say(seq);
 }
 
