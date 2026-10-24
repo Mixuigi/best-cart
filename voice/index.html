@@ -143,6 +143,7 @@ select{max-width:60%}
     <label><span>«Твой лучший круг» при личном рекорде</span><input type="checkbox" id="sayPb"></label>
     <label><span>Предупреждать о потере связи</span><input type="checkbox" id="sayConn"></label>
     <label><span>Голос</span><select id="voice"></select></label>
+    <label><span>Эффект (для нейроголоса)</span><select id="fx"><option value="none">без эффекта</option><option value="robot">робот — ИИ из фантастики</option></select></label>
     <label><span>Темп (у нейроголоса — только паузы)</span><select id="rate"><option value="0.9">медленно</option><option value="1">обычно</option><option value="1.15">быстрее</option><option value="1.3">быстро</option></select></label>
   </div>
 
@@ -295,7 +296,7 @@ function searchTracks(query){
   return res.sort((a, b) => b[0] - a[0] || a[1] - b[1]).map(([, i]) => TRACKS[i]);
 }
 const KEY = 'lapvoice.v1';
-const DEF = {num:'', track:STAYKI, rep:2, leaderMode:'p1best', leaderWhen:'new', sayPos:true, sayGap:false, sayPb:true, sayConn:true, voice:'nn:svetlana', rate:1, keep:2, board:false};
+const DEF = {num:'', track:STAYKI, rep:2, leaderMode:'p1best', leaderWhen:'new', sayPos:true, sayGap:false, sayPb:true, sayConn:true, voice:'nn:svetlana', fx:'none', rate:1, keep:2, board:false};
 const $ = s => document.querySelector(s);
 
 let cfg = {...DEF};
@@ -371,12 +372,36 @@ const Clips = {                              // нейроголос: заран
       if(k === ','){ t += gap; continue; }
       if(k === '.'){ t += stop; continue; }
       const s = c.createBufferSource(); s.buffer = this.buf[k];         // скорость не трогаем — playbackRate меняет и высоту голоса
-      s.connect(c.destination); s.start(t); t += this.buf[k].duration;
+      s.connect(this.out()); s.start(t); t += this.buf[k].duration;
     }
     this.until = t;
   },
-  cancel(){ if(this.ctx){ this.ctx.suspend(); this.until = 0; } }
+  cancel(){ if(this.ctx){ this.ctx.suspend(); this.until = 0; } },
+  fxFor:null, fxIn:null,
+  out(){                                     // вход цепочки эффектов для текущей настройки cfg.fx
+    const c = this.audio();
+    if(this.fxIn && this.fxFor === cfg.fx) return this.fxIn;
+    this.fxFor = cfg.fx;
+    if(cfg.fx !== 'robot') return this.fxIn = c.destination;
+    this.fxIn = robotChain(c, c.destination);
+    return this.fxIn;
+  }
 };
+// «Робот»: кольцевая модуляция даёт металлический призвук, гребенчатый фильтр — звон,
+// подъём верхов и компрессор — чёткость сквозь шум мотора. Обработка, а не чей-то голос.
+function robotChain(c, dest){
+  const input = c.createGain(), dry = c.createGain(), ring = c.createGain(), osc = c.createOscillator(), mix = c.createGain();
+  dry.gain.value = .5; ring.gain.value = 0; osc.frequency.value = 55; osc.connect(ring.gain); osc.start();
+  input.connect(dry); input.connect(ring); dry.connect(mix); ring.connect(mix);
+  const delay = c.createDelay(.05), fb = c.createGain(), sum = c.createGain();
+  delay.delayTime.value = .009; fb.gain.value = .45; sum.gain.value = .75;
+  mix.connect(delay); delay.connect(fb); fb.connect(delay); mix.connect(sum); delay.connect(sum);
+  const hp = c.createBiquadFilter(), pk = c.createBiquadFilter(), comp = c.createDynamicsCompressor();
+  hp.type = 'highpass'; hp.frequency.value = 180;
+  pk.type = 'peaking'; pk.frequency.value = 2800; pk.gain.value = 5; pk.Q.value = 1;
+  sum.connect(hp); hp.connect(pk); pk.connect(comp); comp.connect(dest);
+  return input;
+}
 function trimSilence(b){                     // у mp3 от TTS тишина по краям — без неё фрагменты звучат слитно
   const d = b.getChannelData(0), th = 0.008, sr = b.sampleRate;
   let i = 0, j = d.length - 1;
@@ -698,7 +723,7 @@ function ui(){
 const esc = s => String(s ?? '').replace(/[&<>"]/g, ch => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[ch]));
 
 function bind(){
-  const map = {rep:'rep', leaderMode:'leaderMode', leaderWhen:'leaderWhen', voice:'voice', rate:'rate', keep:'keep', track:'track'};
+  const map = {rep:'rep', leaderMode:'leaderMode', leaderWhen:'leaderWhen', voice:'voice', fx:'fx', rate:'rate', keep:'keep', track:'track'};
   for(const id in map){ const el = $('#' + id); el.value = cfg[map[id]]; el.onchange = () => { cfg[map[id]] = el.value; saveCfg(); if(id === 'keep' && running) Keep.start(); if(id === 'voice') loadVoice(); if(id === 'track' && running){ KC.close(); KC.comp = {}; KC.open(); } ui(); }; }
   for(const id of ['sayPos','sayGap','sayPb','sayConn']){ const el = $('#' + id); el.checked = cfg[id]; el.onchange = () => { cfg[id] = el.checked; saveCfg(); }; }
   const num = $('#num'); num.value = cfg.num;
