@@ -87,6 +87,10 @@ select{max-width:60%}
       <option value="best">лучший круг заезда</option>
       <option value="off">не говорить</option>
     </select></label>
+    <label><span>Когда говорить лидера</span><select id="leaderWhen">
+      <option value="new">только когда улучшил</option>
+      <option value="each">после каждого круга</option>
+    </select></label>
     <label><span>Позиция</span><input type="checkbox" id="sayPos"></label>
     <label><span>«Лучший» при личном рекорде</span><input type="checkbox" id="sayPb"></label>
     <label><span>Предупреждать о потере связи</span><input type="checkbox" id="sayConn"></label>
@@ -120,7 +124,7 @@ const F = {POS:1, NUM:3, NAME:4, BEST:6, LAST1:10, LAPS:13, TEAM:26, RACE_TIME:1
 const KC_WS = 'wss://kartchrono.com:9180';
 const STAYKI = 'da5ce291c3fbb8feb31d79bdee1a00b7';
 const KEY = 'lapvoice.v1';
-const DEF = {num:'', track:STAYKI, rep:2, leaderMode:'p1best', sayPos:true, sayPb:true, sayConn:true, voice:'nn:svetlana', rate:1, keep:2};
+const DEF = {num:'', track:STAYKI, rep:2, leaderMode:'p1best', leaderWhen:'new', sayPos:true, sayPb:true, sayConn:true, voice:'nn:svetlana', rate:1, keep:2};
 const $ = s => document.querySelector(s);
 
 let cfg = {...DEF};
@@ -239,7 +243,8 @@ function announce(lap){
   for(let i = 0; i < +cfg.rep; i++) seq.push(...t, '.');
   if(cfg.sayPb && lap.pb) seq.push('best', '.');
   if(cfg.sayPos && numKey(lap.pos) && lap.pos > 0) seq.push('pos', numKey(lap.pos), '.');
-  if(lap.me1 && cfg.leaderMode !== 'off' && cfg.leaderMode !== 'best') seq.push('youlead', '.');
+  if(lap.sayLeader === false || cfg.leaderMode === 'off');
+  else if(lap.me1) seq.push('youlead', '.');
   else if(lap.leader > 0) seq.push('leader', ',', ...lapKeys(lap.leader), '.');
   Voice.say(seq);
 }
@@ -283,7 +288,7 @@ document.addEventListener('visibilitychange', () => { if(document.visibilityStat
 const KC = {
   // status: off — не подключались/нет сети, wait — подключаемся, idle — сервер отвечает, но заезда нет, on — идут данные
   // epoch растёт с каждым снимком clear: номера кругов сравниваются только внутри одного снимка
-  ws:null, status:'off', comp:{}, primed:false, epoch:0, guid:null, seenFor:null, run:'', raceName:'', runName:'', flag:null, lostAt:0, saidLost:false, timer:{},
+  ws:null, status:'off', comp:{}, primed:false, epoch:0, saidLeader:null, guid:null, seenFor:null, run:'', raceName:'', runName:'', flag:null, lostAt:0, saidLost:false, timer:{},
   open(){
     if(this.ws && this.ws.readyState <= 1) return;
     let ws; try{ ws = new WebSocket(KC_WS); }catch(e){ return; }
@@ -342,11 +347,18 @@ const KC = {
     if(!(lt > 0)) return;
     if(last && last.cid === cid && last.epoch === this.epoch && (n != null ? n <= last.n : lt === last.lt)) return;
     const all = Object.values(this.comp), p1 = all.find(x => x[F.POS] === 1);
-    let leader = null;
-    if(cfg.leaderMode === 'best') leader = Math.min(...all.map(x => x[F.BEST] > 0 ? x[F.BEST] : Infinity));
-    else if(p1 && p1 !== c) leader = cfg.leaderMode === 'p1last' ? p1[F.LAST1] : p1[F.BEST];
+    let leader = null, lid = null;
+    if(cfg.leaderMode === 'best'){
+      for(const [k, x] of Object.entries(this.comp)) if(x[F.BEST] > 0 && (leader == null || x[F.BEST] < leader)){ leader = x[F.BEST]; lid = k; }
+    } else if(p1 === c) lid = 'me';
+    else if(p1){ leader = cfg.leaderMode === 'p1last' ? p1[F.LAST1] : p1[F.BEST]; lid = Object.keys(this.comp).find(k => this.comp[k] === p1); }
+    // «только когда улучшил»: лидер сменился или его время лучше уже озвученного;
+    // для «последний круг лидера» — когда этот круг стал его лучшим
+    const L = this.saidLeader, improved = cfg.leaderMode === 'p1last' ? p1 && p1[F.LAST1] > 0 && p1[F.LAST1] <= p1[F.BEST] && !(L && L.val === leader) : leader > 0 && !(leader >= L?.val);
+    const fresh = !L || L.epoch !== this.epoch || L.lid !== lid || improved;
+    if(fresh) this.saidLeader = {epoch:this.epoch, lid, val:leader};
     const lap = {cid, epoch:this.epoch, run:this.run, n, lt, pos:c[F.POS], best:c[F.BEST], pb: c[F.BEST] > 0 && lt <= c[F.BEST] && (n != null ? n > 1 : laps.some(l => l.run === this.run)),
-      leader: isFinite(leader) ? leader : null, me1: p1 === c, at: Date.now()};
+      leader: leader > 0 ? leader : null, me1: cfg.leaderMode === 'best' ? lid === cid : p1 === c, sayLeader: cfg.leaderWhen !== 'new' || fresh, at: Date.now()};
     pushLap(lap);
   }
 };
@@ -355,7 +367,7 @@ function pushLap(lap){
   last = lap; laps.unshift(lap); if(laps.length > 60) laps.pop();
   announce(lap); Keep.meta(); ui();
 }
-function repeatLast(){ if(last) announce(last); else Voice.say(['nolaps', '.']); }
+function repeatLast(){ if(last) announce({...last, sayLeader:true}); else Voice.say(['nolaps', '.']); }
 
 /* ---------- Тест: фейковые круги ---------- */
 const Test = {
@@ -422,7 +434,7 @@ function ui(){
 const esc = s => String(s ?? '').replace(/[&<>"]/g, ch => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[ch]));
 
 function bind(){
-  const map = {rep:'rep', leaderMode:'leaderMode', voice:'voice', rate:'rate', keep:'keep', track:'track'};
+  const map = {rep:'rep', leaderMode:'leaderMode', leaderWhen:'leaderWhen', voice:'voice', rate:'rate', keep:'keep', track:'track'};
   for(const id in map){ const el = $('#' + id); el.value = cfg[map[id]]; el.onchange = () => { cfg[map[id]] = el.value; saveCfg(); if(id === 'keep' && running) Keep.start(); if(id === 'voice') loadVoice(); if(id === 'track' && running){ KC.close(); KC.comp = {}; KC.open(); } ui(); }; }
   for(const id of ['sayPos','sayPb','sayConn']){ const el = $('#' + id); el.checked = cfg[id]; el.onchange = () => { cfg[id] = el.checked; saveCfg(); }; }
   const num = $('#num'); num.value = cfg.num;
