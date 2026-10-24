@@ -224,21 +224,25 @@ const Voice = {
   neural(){ return cfg.voice.startsWith('nn:') && Clips.ready && Clips.name === cfg.voice.slice(3); },
   say(seq){
     if(this.neural()){ Clips.play(seq); return; }
-    if(!('speechSynthesis' in window)) return;
+    const lines = []; let txt = '';
+    for(const k of seq){
+      if(k !== '.'){ txt += k === ',' ? ', ' : (txt && !txt.endsWith(' ') ? ' ' : '') + keyText(k); continue; }
+      if(txt.trim()) lines.push(txt.trim()); txt = '';
+    }
+    if(txt.trim()) lines.push(txt.trim());
+    // в Android-приложении (android/) нет Web Speech — говорит системный синтезатор через мост
+    if(window.GolosApp && !window.speechSynthesis){ lines.forEach(l => GolosApp.speak(l)); return; }
+    if(!window.speechSynthesis) return;
     const vs = speechSynthesis.getVoices().filter(v => /^ru/i.test(v.lang)), v = vs.find(x => x.voiceURI === cfg.voice) || vs[0];
-    let txt = '';
-    const flush = () => {
-      if(!txt.trim()) return;
-      const u = new SpeechSynthesisUtterance(txt.trim());
+    for(const l of lines){
+      const u = new SpeechSynthesisUtterance(l);
       u.lang = 'ru-RU'; if(v) u.voice = v; u.rate = +cfg.rate; u.volume = 1;
       u.onend = u.onerror = () => { this.keep = this.keep.filter(x => x !== u); };
-      this.keep.push(u); speechSynthesis.speak(u); txt = '';
-    };
-    for(const k of seq){ if(k === '.') flush(); else txt += k === ',' ? ', ' : (txt && !txt.endsWith(' ') ? ' ' : '') + keyText(k); }
-    flush();
+      this.keep.push(u); speechSynthesis.speak(u);
+    }
     speechSynthesis.resume();
   },
-  cancel(){ Clips.cancel(); if('speechSynthesis' in window) speechSynthesis.cancel(); },
+  cancel(){ Clips.cancel(); if('speechSynthesis' in window) speechSynthesis.cancel(); if(window.GolosApp) GolosApp.stopSpeak(); },
   fill(){
     const sel = $('#voice'), vs = 'speechSynthesis' in window ? speechSynthesis.getVoices().filter(v => /^ru/i.test(v.lang)) : [];
     sel.innerHTML = Object.entries(NEURAL).map(([k, n]) => `<option value="nn:${k}">${n}</option>`).join('')
@@ -291,8 +295,10 @@ const Keep = {
   },
   stop(){ if(this.a){ this.a.pause(); URL.revokeObjectURL(this.a.src); this.a = null; } },
   meta(){
+    const title = last ? fmt(last.lt) + (last.pos ? '  P' + last.pos : '') : 'Ждём круг';
+    if(window.GolosApp) GolosApp.setStatus('Карт ' + (cfg.num || '?') + ':  ' + title);
     if(!('mediaSession' in navigator) || !this.a) return;
-    navigator.mediaSession.metadata = new MediaMetadata({title: last ? fmt(last.lt) + (last.pos ? '  P' + last.pos : '') : 'Ждём круг', artist: 'Карт ' + (cfg.num || '?'), album: 'Голос круга'});
+    navigator.mediaSession.metadata = new MediaMetadata({title, artist: 'Карт ' + (cfg.num || '?'), album: 'Голос круга'});
   }
 };
 
@@ -438,6 +444,7 @@ function ui(){
   $('#leaderLbl').textContent = {p1best:'Лидер, лучший', p1last:'Лидер, последний', best:'Лучший заезда', off:'Лидер'}[cfg.leaderMode];
   $('#leader').textContent = last && last.me1 ? 'ты лидер' : fmt(last && last.leader);
   $('#bgHint').innerHTML = cfg.voice.startsWith('nn:') && !Voice.neural() ? '<span class="warn">Загружаю нейроголос… пока говорит системный голос.</span>'
+    : window.GolosApp ? '📱 Приложение: работает в фоне, экран можно выключать.'
     : running && +cfg.keep === 0 ? '<span class="warn">Фоновый звук выключен — при выключенном экране браузер может заснуть.</span>' : '';
   const chips = Object.values(KC.comp).filter(c => c[F.NUM] != null && c[F.NUM] !== '')
     .sort((a, b) => (a[F.POS] || 99) - (b[F.POS] || 99));

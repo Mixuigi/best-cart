@@ -1,0 +1,45 @@
+# Собирает APK «Голос круга» и выкладывает его в релиз `apk`:
+# https://github.com/Mixuigi/best-cart/releases/download/apk/golos-kruga.apk
+name: apk
+
+on:
+  push:
+    branches: [main]
+    paths: ['android/**', '.github/workflows/apk.yml']
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.9'
+      - name: Build
+        working-directory: android
+        run: |
+          set -o pipefail
+          gradle assembleRelease --no-daemon --stacktrace 2>&1 | tee build.log
+      - name: Publish APK
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          cp android/app/build/outputs/apk/release/app-release.apk golos-kruga.apk
+          gh release view apk >/dev/null 2>&1 || gh release create apk --title "Голос круга (APK)" --notes "Скачать golos-kruga.apk и установить на Android."
+          gh release upload apk golos-kruga.apk --clobber
+      - name: Publish build log on failure
+        if: failure()
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release view apk-log >/dev/null 2>&1 || gh release create apk-log --prerelease --title "apk build log" --notes "Лог последней неудачной сборки"
+          tail -c 200000 android/build.log > build-log.txt || echo "no log" > build-log.txt
+          gh release upload apk-log build-log.txt --clobber

@@ -1,0 +1,45 @@
+plugins {
+    id 'com.android.application'
+}
+
+android {
+    namespace 'by.mixuigi.golos'
+    compileSdk 34
+
+    defaultConfig {
+        applicationId 'by.mixuigi.golos'
+        minSdk 26
+        targetSdk 34
+        versionCode 1
+        versionName '1.0'
+    }
+
+    // Ключ лежит в репозитории намеренно: приложение ставится вручную, а один и тот же ключ
+    // позволяет ставить новые сборки поверх старых без удаления.
+    signingConfigs {
+        fixed {
+            storeFile file('sign.p12')
+            storeType 'pkcs12'
+            storePassword 'golos-kruga'
+            keyAlias 'golos'
+            keyPassword 'golos-kruga'
+        }
+    }
+
+    buildTypes {
+        release {
+            minifyEnabled false
+            signingConfig signingConfigs.fixed
+        }
+    }
+
+    lint {
+        checkReleaseBuilds false
+        abortOnError false
+    }
+
+    compileOptions {
+        sourceCompatibility JavaVersion.VERSION_17
+        targetCompatibility JavaVersion.VERSION_17
+    }
+}
