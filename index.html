@@ -1,0 +1,1063 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover,user-scalable=no">
+<title>Пит-радар</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<meta name="theme-color" content="#101214">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Roboto+Condensed:wght@400;600;800&display=swap">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Sortable/1.15.0/Sortable.min.js"></script>
+<style>
+/* Тёмный пульт оператора: шапка с часами гонки, экран-вкладка, нижняя навигация. Цвет = рейтинг карта. */
+:root{
+  --bg:#101214; --panel:#181b1f; --panel2:#21252a; --line:#2d3238;
+  --fg:#eef0f2; --mut:#8d959d; --acc:#ff7b1c; --acc-ink:#1a0d02;
+  --g:#2bd37b; --g-bg:#123524; --y:#f2c230; --y-bg:#3a3010; --r:#ff5252; --r-bg:#3d1616; --u:#6b737b; --u-bg:#23272c;
+  --f-num:"Roboto Condensed","Arial Narrow",system-ui,sans-serif;
+  --f-body:system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;
+  color-scheme:dark;
+}
+*{box-sizing:border-box}
+html,body{height:100%}
+body{margin:0;background:var(--bg);color:var(--fg);font:16px/1.35 var(--f-body);-webkit-tap-highlight-color:transparent;overscroll-behavior:none}
+button{font:inherit;color:inherit}
+body::before{content:"";position:fixed;inset:0 0 auto;height:env(safe-area-inset-top,0px);background:var(--panel);z-index:30}
+.top{position:sticky;top:env(safe-area-inset-top,0px);z-index:20;background:var(--panel);border-bottom:1px solid var(--line);
+  padding:8px max(12px,env(safe-area-inset-right,0px)) 8px max(12px,env(safe-area-inset-left,0px));display:flex;align-items:center;gap:10px}
+.clock{font:800 26px/1 var(--f-num);white-space:nowrap;font-variant-numeric:tabular-nums;letter-spacing:.5px}
+.flag{font:600 12px var(--f-num);padding:3px 7px;border-radius:5px;background:var(--panel2);color:var(--mut);text-transform:uppercase;letter-spacing:.06em}
+.flag.red{background:var(--r);color:#fff}.flag.fin{background:#fff;color:#000}.flag.sim{background:var(--acc);color:var(--acc-ink)}
+.conn{width:10px;height:10px;border-radius:50%;background:var(--r);flex:none}.conn.on{background:var(--g)}.conn.wait{background:var(--y)}
+.top .sp{flex:1}
+.undo{border:1px solid var(--line);background:var(--panel2);border-radius:10px;padding:8px 12px;font-weight:600;white-space:nowrap;flex:none}
+.flag{white-space:nowrap;overflow:hidden;text-overflow:ellipsis;min-width:0}
+@media (max-width:420px){ .undo .ut{display:none} }
+.undo:disabled{opacity:.35}
+.badge{background:var(--acc);color:var(--acc-ink);font:800 15px var(--f-num);border-radius:999px;padding:2px 9px}
+main{padding:12px max(12px,env(safe-area-inset-right,0px)) calc(86px + env(safe-area-inset-bottom,0px)) max(12px,env(safe-area-inset-left,0px));display:flex;flex-direction:column;gap:14px;max-width:1100px;margin:0 auto}
+nav.tabs{position:fixed;left:0;right:0;bottom:0;z-index:20;background:var(--panel);border-top:1px solid var(--line);display:grid;grid-template-columns:repeat(5,1fr);
+  padding:0 env(safe-area-inset-right,0px) env(safe-area-inset-bottom,0px) env(safe-area-inset-left,0px)}
+nav.tabs button{border:0;background:none;padding:12px 2px 13px;font:600 14px var(--f-num);text-transform:uppercase;letter-spacing:.05em;color:var(--mut);position:relative}
+nav.tabs button.on{color:var(--acc)}
+nav.tabs button .dot{position:absolute;top:6px;right:calc(50% - 30px);min-width:18px;height:18px;border-radius:9px;background:var(--acc);color:var(--acc-ink);font-size:12px;line-height:18px}
+h2{font:800 15px var(--f-num);text-transform:uppercase;letter-spacing:.08em;color:var(--mut);margin:0 0 8px;text-wrap:balance}
+.sec{display:flex;flex-direction:column}
+.muted{color:var(--mut)}
+.small{font-size:13px}
+.num{font-family:var(--f-num);font-variant-numeric:tabular-nums}
+.empty{padding:14px;border:1px dashed var(--line);border-radius:12px;color:var(--mut);text-align:center}
+
+/* --- рейтинг-цвета --- */
+.c-g{--c:var(--g);--cb:var(--g-bg)}.c-y{--c:var(--y);--cb:var(--y-bg)}.c-r{--c:var(--r);--cb:var(--r-bg)}.c-u{--c:var(--u);--cb:var(--u-bg)}
+.pill{display:inline-block;font:800 12px var(--f-num);letter-spacing:.06em;text-transform:uppercase;padding:2px 7px;border-radius:5px;background:var(--c);color:#0b0d0e}
+.c-u .pill,.pill.c-u{color:#fff}
+
+/* --- карточки питов --- */
+.pitcard{background:var(--panel);border:1px solid var(--line);border-radius:14px;padding:12px;display:flex;flex-direction:column;gap:10px}
+.pitcard.fast{border-color:var(--g);box-shadow:0 0 0 2px var(--g) inset;animation:pulse 1s ease-in-out 6}
+.pitcard.ours{border-color:var(--acc)}
+@keyframes pulse{50%{background:var(--g-bg)}}
+.pitcard .who{font:800 22px/1.1 var(--f-num)}
+.pitcard .who small{font:600 14px var(--f-body);color:var(--mut)}
+.pitcard .kk{margin-top:4px;font-size:15px}
+.pitcard .kk b{font-family:var(--f-num);font-size:17px}
+.ab{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+.ab button{height:72px;border-radius:14px;border:2px solid var(--line);background:var(--panel2);font:800 38px var(--f-num)}
+.ab button:active{background:var(--acc);color:var(--acc-ink)}
+.pitcard .tools{display:flex;gap:8px;flex-wrap:wrap;align-items:center}
+.btn{border:1px solid var(--line);background:var(--panel2);border-radius:10px;padding:10px 14px;font-weight:600;min-height:44px}
+.btn.acc{background:var(--acc);border-color:var(--acc);color:var(--acc-ink)}
+.btn.danger{border-color:var(--r);color:var(--r)}
+.btn.sm{padding:6px 10px;min-height:34px;font-size:14px}
+.hint{font:600 13px var(--f-num);color:var(--acc)}
+
+/* --- если заедем сейчас --- */
+.now{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+.nowbox{border-radius:14px;padding:10px 12px;background:var(--cb);border:2px solid var(--c);min-width:0}
+.nowbox .ln{font:800 13px var(--f-num);color:var(--mut);letter-spacing:.08em}
+.nowbox .kl{font:800 30px/1.05 var(--f-num)}
+.nowbox .mt{font:600 15px var(--f-num)}
+.verdict{grid-column:1/-1;text-align:center;font:800 22px var(--f-num);text-transform:uppercase;letter-spacing:.06em;padding:8px;border-radius:12px;background:var(--panel2)}
+.verdict.go{background:var(--g);color:#06150d}.verdict.wait{background:var(--r);color:#fff}
+
+/* --- коридоры --- */
+.lanes{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+.lane{background:var(--panel);border:1px solid var(--line);border-radius:14px;padding:8px;min-width:0;display:flex;flex-direction:column;gap:6px}
+.lane .lh{display:flex;justify-content:space-between;align-items:center;font:800 20px var(--f-num);padding:2px 4px}
+.slots{display:flex;flex-direction:column;gap:6px;min-height:60px}
+.chip{border-radius:11px;background:var(--cb);border:1.5px solid var(--c);padding:7px 9px;touch-action:manipulation;user-select:none;-webkit-user-select:none;min-width:0}
+.chip .cl{font:800 20px/1.1 var(--f-num);display:flex;gap:6px;align-items:baseline;justify-content:space-between}
+.chip .cl i{font:600 11px var(--f-num);font-style:normal;color:var(--mut);letter-spacing:.06em}
+.chip .cm{font:600 14px var(--f-num);font-variant-numeric:tabular-nums}
+.chip .cs{font-size:12px;color:var(--mut);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.chip.head{border-width:3px;box-shadow:0 0 0 1px var(--bg)}
+.chip.ghost{opacity:.35}
+.addk{border:1px dashed var(--line);background:none;border-radius:10px;padding:8px;color:var(--mut)}
+
+/* --- лента / таблицы --- */
+.list{display:flex;flex-direction:column;gap:6px}
+.row{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:10px 12px;display:grid;gap:4px}
+.row.ours{border-color:var(--acc)}
+.rowtop{display:flex;align-items:center;gap:8px;min-width:0}
+.rowtop .t{font:800 19px var(--f-num);white-space:nowrap}
+.rowtop .n{flex:1;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.bar{height:8px;border-radius:4px;background:var(--panel2);overflow:hidden}
+.bar i{display:block;height:100%;background:var(--g)}
+.bar.warn i{background:var(--y)}.bar.crit i{background:var(--r)}
+.kmini{display:inline-flex;gap:6px;align-items:center;font:600 14px var(--f-num);padding:2px 8px;border-radius:7px;background:var(--cb);border:1px solid var(--c)}
+.soon{border:2px solid var(--y);border-radius:14px;padding:10px;display:flex;flex-direction:column;gap:6px}
+.soon.crit{border-color:var(--r)}
+.fastglow{box-shadow:0 0 0 2px var(--g)}
+.tbl-wrap{overflow-x:auto}
+table{border-collapse:collapse;width:100%;font:14px var(--f-num);font-variant-numeric:tabular-nums}
+th,td{padding:5px 6px;border-bottom:1px solid var(--line);text-align:right;white-space:nowrap}
+th:first-child,td:first-child{text-align:left}
+th{color:var(--mut);font-weight:600}
+.logi{font-size:14px;padding:6px 0;border-bottom:1px solid var(--line);display:grid;grid-template-columns:auto 1fr;gap:10px}
+.logi .lt{font:600 13px var(--f-num);color:var(--mut)}
+.notice{border-radius:14px;padding:12px;font:800 20px var(--f-num);display:flex;justify-content:space-between;gap:10px;align-items:center;background:var(--cb);border:2px solid var(--c)}
+.warnbox{border:1px solid var(--y);color:var(--y);border-radius:10px;padding:8px 10px;font-size:14px}
+
+/* --- формы --- */
+.form{display:grid;gap:10px}
+.fld{display:grid;grid-template-columns:1fr auto;gap:10px;align-items:center;background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:10px 12px}
+.fld label{font-size:15px}
+.fld small{display:block;color:var(--mut);font-size:12px}
+input,select{font:600 17px var(--f-num);background:var(--panel2);color:var(--fg);border:1px solid var(--line);border-radius:9px;padding:9px 10px;min-height:44px}
+input[type=number]{width:90px}
+input[type=text]{width:100%}
+input[type=checkbox]{width:28px;height:28px;min-height:0;accent-color:var(--acc)}
+.fld.wide{grid-template-columns:1fr}
+.btnrow{display:flex;gap:8px;flex-wrap:wrap}
+:focus-visible{outline:3px solid var(--acc);outline-offset:2px}
+
+/* --- модалка и шторка --- */
+.modal{position:fixed;inset:0;z-index:50;background:rgba(0,0,0,.72);display:flex;align-items:flex-end;justify-content:center;padding:env(safe-area-inset-top,0px) 0 0}
+.sheet{background:var(--panel);border-radius:18px 18px 0 0;width:100%;max-width:640px;max-height:92%;overflow:auto;
+  padding:16px max(16px,env(safe-area-inset-right,0px)) calc(18px + env(safe-area-inset-bottom,0px)) max(16px,env(safe-area-inset-left,0px));display:flex;flex-direction:column;gap:12px}
+.sheet h3{margin:0;font:800 24px var(--f-num)}
+.stepper{display:flex;align-items:center;gap:6px}
+.stepper button{width:48px;height:48px;border-radius:12px;border:1px solid var(--line);background:var(--panel2);font:800 24px var(--f-num)}
+.stepper output{min-width:34px;text-align:center;font:800 26px var(--f-num)}
+.grid2{display:grid;grid-template-columns:1fr 1fr;gap:8px}
+.flash{position:fixed;inset:0;z-index:60;pointer-events:none;background:var(--g);opacity:0;animation:flash .9s ease-out 3}
+@keyframes flash{0%{opacity:.55}100%{opacity:0}}
+@media (min-width:760px){ .pitfeed{display:grid;grid-template-columns:1fr 1fr;gap:10px} }
+@media (prefers-reduced-motion:reduce){ .pitcard.fast,.flash{animation:none} }
+</style>
+</head>
+<body>
+<header class="top">
+  <span class="conn" id="conn" title="Связь"></span>
+  <span class="clock" id="clock">—:—</span>
+  <span class="flag" id="flag">нет данных</span>
+  <span class="sp"></span>
+  <span class="badge" id="qbadge" hidden></span>
+  <button class="undo" id="undo" data-act="undo" disabled aria-label="Отменить">↶<span class="ut"> Отменить</span></button>
+</header>
+<main id="main"></main>
+<nav class="tabs" id="tabs">
+  <button data-act="tab" data-t="pit">Пит-лейн</button>
+  <button data-act="tab" data-t="track">Трасса</button>
+  <button data-act="tab" data-t="karts">Карты</button>
+  <button data-act="tab" data-t="log">Лог</button>
+  <button data-act="tab" data-t="cfg">Настр.</button>
+</nav>
+<div id="modal"></div>
+<input type="file" id="fileImport" accept=".json,application/json" hidden>
+<input type="file" id="fileRec" accept=".json,application/json" hidden>
+
+<script>
+'use strict';
+/* =====================================================================
+   ПИТ-РАДАР — трекинг картов в пит-лейне по live-таймингу Kart Chrono
+   Структура файла:
+     1. Константы протокола Kart Chrono (коды полей)  <-- ПРАВИТЬ ЗДЕСЬ при смене формата
+     2. Состояние и хранение
+     3. Адаптер KC (WebSocket -> нормализованные события)
+     4. Движок: питы, коридоры (FIFO), стинты, метрики
+     5. Симулятор (мок-гонка) и реплей записи
+     6. UI
+   ===================================================================== */
+
+/* ---------- 1. Протокол Kart Chrono ---------- */
+// Коды полей из https://stayki.kartchrono.com/js/dataPullerWS2.js
+const F = {
+  POS:1, NUM:3, NAME:4, STATE:5, BEST:6, LAST1:10, LAST2:11, LAST3:12, LAPS:13,
+  TEAM:26, PITS:27, PIT_TIME:28, SESSION:29, AVG:32, LANE:62,           // LANE = PIT_LANE_SELECT
+  RACE_TIME:100, TIME_TO_GO:101, RUN_NAME:104, RACE_NAME:105, FLAG:106, RUN_GUID:111,
+  COMMENT_TEXT:110
+};
+const ST = {FINISHED:5, PITIN:6, PITOUT:7};                 // COMPETITOR_STATE
+const FLAG = {RED:2, FINISH:3, WARMUP:4};                    // FLAG_STATUS
+const LF = {DELETED:1048576, REJECTED:2097152, PITIN:4194304, PITOUT:8388608}; // флаги круга
+const BAD_LAP = LF.PITIN|LF.PITOUT|LF.DELETED|LF.REJECTED;
+const KC_WS = 'wss://kartchrono.com:9180';
+const STAYKI_TRACK = 'da5ce291c3fbb8feb31d79bdee1a00b7';
+
+/* ---------- 2. Состояние ---------- */
+const KEY = 'pitradar.v1';
+const DEF_CFG = {
+  trackId: STAYKI_TRACK, wsUrl: KC_WS, live: true,
+  windowMin: 5, cleanPct: 10, minClean: 3, greenPct: 33, redPct: 33,
+  warnMin: 30, critMin: 33, stintMax: 35, teamCorr: true, rating: 'mix',
+  autoLane: true, sound: true, simSpeed: 30, simAutoLane: false, simHint: true
+};
+const Clock = { virt: null, now(){ return this.virt != null ? this.virt : Date.now(); } };
+let S;            // сохраняемое состояние
+let D = null;     // производное (пересчитывается)
+let lapIdx = new Map();
+
+function fresh(cfg){
+  return { v:1, cfg:{...DEF_CFG, ...(cfg||{})}, setup:null, teams:{}, laps:{}, pits:[], edits:[], karts:{},
+    seq:1, undo:[], log:[], histPit:{}, offset:null, ourNotice:null,
+    race:{rt:null, at:0, ticking:false, flag:null, ttg:null, runName:'', raceName:'', guid:null} };
+}
+function load(){
+  try{ const j = localStorage.getItem(KEY); if(j) S = JSON.parse(j); }catch(e){ S = null; }
+  if(!S || S.v !== 1) S = fresh();
+  S.cfg = {...DEF_CFG, ...S.cfg};
+  rebuildIdx();
+}
+function rebuildIdx(){ lapIdx = new Map(); for(const num in S.laps) for(const l of S.laps[num]) lapIdx.set(num+'|'+l.id, l); }
+let saveT = null;
+function save(){ if(!saveT) saveT = setTimeout(()=>{ saveT=null; saveNow(); }, 1500); }
+function saveNow(){
+  if(Sim.on || Rep.on) return;            // тестовые прогоны не затирают сохранение лишний раз
+  try{ localStorage.setItem(KEY, JSON.stringify(S)); }catch(e){ console.warn(e); }
+}
+const serverNow = () => Clock.now() - (S.offset || 0);
+function raceNow(){
+  const r = S.race;
+  if(r.rt != null){
+    let x = r.rt;
+    if(r.ticking && r.flag !== FLAG.RED && r.flag !== FLAG.FINISH) x += Math.min(Clock.now() - r.at, 20000);
+    return x;
+  }
+  return S.setup ? Clock.now() - S.setup.at : 0;   // фолбэк — часы устройства
+}
+function rtAt(tServer){ return raceNow() - (serverNow() - tServer); }
+function log(m, kind){
+  S.log.unshift({t:Clock.now(), rt:raceNow(), m, k:kind||''});
+  if(S.log.length > 600) S.log.length = 600;
+}
+
+/* ---------- 3. Адаптер Kart Chrono ---------- */
+const KC = {
+  ws:null, stop:true, status:'off', comp:{}, pend:{}, connAt:0, lastMsg:0, snapAt:0, offs:[], seenComments:{},
+  connect(){
+    if(Sim.on || Rep.on) return;
+    this.stop = false; this.open();
+  },
+  open(){
+    if(this.ws && this.ws.readyState <= 1) return;
+    let ws;
+    try{ ws = new WebSocket(S.cfg.wsUrl || KC_WS); }catch(e){ this.status='off'; return; }
+    this.ws = ws; ws.binaryType = 'arraybuffer'; this.status = 'wait';
+    ws.onopen = () => { this.connAt = Clock.now(); ws.send(JSON.stringify({trackId:S.cfg.trackId})); };
+    ws.onmessage = e => { Rec.push(e.data); this.handle(e.data); };
+    ws.onclose = () => {
+      if(this.ws === ws) this.ws = null;
+      this.status = 'off'; ui.dirty = true;
+      if(!this.stop) setTimeout(() => this.open(), 5000);
+    };
+    ws.onerror = () => {};
+  },
+  disconnect(){ this.stop = true; if(this.ws) try{ this.ws.close(); }catch(e){} this.ws = null; this.status='off'; },
+  handle(data){
+    this.lastMsg = Clock.now(); this.status = 'on';
+    if(typeof data !== 'string'){ this.bin(data); }
+    else { let m; try{ m = JSON.parse(data); }catch(e){ return; } this.json(m); }
+    Eng.changed();
+  },
+  json(m){
+    if(m.command === 'clear'){ this.comp = {}; this.snapAt = Clock.now(); }
+    if(m[F.RACE_TIME] != null || m[F.FLAG] != null || m[F.TIME_TO_GO] != null) Eng.raceClock(m[F.RACE_TIME], m[F.FLAG], m[F.TIME_TO_GO]);
+    if(m[F.RUN_NAME] != null) S.race.runName = m[F.RUN_NAME];
+    if(m[F.RACE_NAME] != null) S.race.raceName = m[F.RACE_NAME];
+    if(m[F.RUN_GUID] != null && m[F.RUN_GUID] !== S.race.guid){
+      if(S.race.guid) log('В тайминге сменился заезд: ' + (S.race.runName||''), 'warn');
+      S.race.guid = m[F.RUN_GUID];
+    }
+    if(m.results) for(const cid in m.results) this.diff(cid, m.results[cid]);
+    if(m.pitlane) for(const cid in m.pitlane) this.diff(cid, m.pitlane[cid]);
+    if(m.sessions) for(const cid in m.sessions){
+      const s = m.sessions[cid], c = this.comp[cid];
+      if(c && s[F.SESSION] != null){ c[F.SESSION] = s[F.SESSION]; const t = S.teams[this.num(cid)]; if(t){ t.sess = s[F.SESSION]; t.sessAt = Clock.now(); } }
+    }
+    if(m.comments) for(const id in m.comments){
+      const txt = m.comments[id][F.COMMENT_TEXT];
+      if(txt && this.seenComments[id] !== txt){ this.seenComments[id] = txt; log('ИНФОРМАЦИЯ: ' + String(txt).replace(/<[^>]*>/g,''), 'info'); }
+    }
+  },
+  num(cid){ const c = this.comp[cid]; return String(c && c[F.NUM] != null && c[F.NUM] !== '' ? c[F.NUM] : 'c'+cid); },
+  diff(cid, d){
+    const prev = this.comp[cid] || {};
+    const c = this.comp[cid] = {...prev, ...d};
+    const num = this.num(cid);
+    Eng.teamInfo(num, c[F.TEAM], c[F.NAME], cid);
+    if(F.STATE in d){
+      const s = d[F.STATE], p = prev[F.STATE];
+      if(s === ST.PITIN && p !== ST.PITIN) Eng.pitSignal(num, serverNow(), 'state');
+      if((s === ST.PITOUT && p !== ST.PITOUT) || ((p === ST.PITIN || p === ST.PITOUT) && s !== ST.PITIN && s !== ST.PITOUT)) Eng.pitOut(num, serverNow());
+    }
+    if(F.PITS in d && prev[F.PITS] != null && d[F.PITS] > prev[F.PITS]) Eng.pitSignal(num, serverNow(), 'count');
+    if(F.LANE in d && d[F.LANE] !== '' && d[F.LANE] != null) Eng.laneSignal(num, d[F.LANE]);
+    // запасной путь сбора кругов: рост счётчика кругов + последний круг
+    if(F.LAPS in d && prev[F.LAPS] != null && d[F.LAPS] > prev[F.LAPS] && c[F.LAST1] > 0)
+      Eng.addLap(num, {id:'r'+d[F.LAPS], ts:serverNow(), lt:c[F.LAST1], f:0, n:d[F.LAPS], fb:1});
+    const pend = this.pend[cid];
+    if(pend){ delete this.pend[cid]; pend.forEach(r => this.binRec(r, false)); }
+  },
+  bin(buf){
+    const u = new Uint8Array(buf);
+    if(String.fromCharCode.apply(null, u.subarray(0,8)) !== 'BINLAPS:') return;
+    const dv = new DataView(buf), live = Clock.now() - this.connAt > 4000 || Sim.on;
+    for(let o = 8; o + 52 <= buf.byteLength; o += 52){
+      this.binRec({cid:dv.getInt32(o,true), id:dv.getInt32(o+4,true), n:dv.getInt32(o+8,true),
+        lt:dv.getInt32(o+32,true), ts:dv.getUint32(o+36,true) + 4294967296*dv.getUint32(o+40,true), f:dv.getInt32(o+44,true)}, live);
+    }
+  },
+  binRec(r, live){
+    if(!this.comp[r.cid]){ (this.pend[r.cid] ||= []).push(r); return; }
+    if(r.lt <= 0) return;
+    const num = this.num(r.cid);
+    const isNew = Eng.addLap(num, {id:r.id, ts:r.ts, lt:r.lt, f:r.f, n:r.n});
+    if(isNew && live && !Sim.on){                      // оценка сдвига часов сервер/устройство
+      this.offs.push(Clock.now() - r.ts); if(this.offs.length > 25) this.offs.shift();
+      S.offset = Math.min(...this.offs);
+    }
+    if(r.f & LF.PITIN) Eng.pitSignal(num, r.ts, 'lap');
+    if(r.f & LF.PITOUT) Eng.pitOut(num, r.ts);
+  }
+};
+
+/* ---------- 4. Движок ---------- */
+function normLane(v){
+  const s = String(v ?? '').trim().toUpperCase();
+  if(!s) return null;
+  if(/^(A|А|1|L)/.test(s)) return 'A';
+  if(/^(B|Б|В|2|R)/.test(s)) return 'B';
+  return null;
+}
+const Eng = {
+  laneHint:{},
+  changed(){ ui.dataDirty = true; save(); },
+  teamInfo(num, name, pilot, cid){
+    const t = S.teams[num] ||= {num, name:'', pilot:''};
+    if(name != null && name !== '') t.name = String(name);
+    if(pilot != null && pilot !== '') t.pilot = String(pilot);
+    if(cid != null) t.cid = cid;
+  },
+  raceClock(rt, flag, ttg){
+    const r = S.race, now = Clock.now();
+    if(flag != null){ if(flag !== r.flag && r.flag != null){ if(flag === FLAG.RED) log('КРАСНЫЙ ФЛАГ — время гонки остановлено','warn'); if(r.flag === FLAG.RED) log('Красный флаг снят','warn'); } r.flag = flag; }
+    if(ttg != null) r.ttg = ttg * 1000;
+    if(rt != null){
+      const ms = rt * 1000;
+      if(r.rt == null || ms !== r.rt){ r.ticking = r.rt != null && ms > r.rt; r.rt = ms; r.at = now; }
+      else if(now - r.at > 2500) r.ticking = false;
+    }
+  },
+  addLap(num, lap){
+    const key = num + '|' + lap.id, ex = lapIdx.get(key);
+    if(ex){ ex.f = lap.f; ex.lt = lap.lt; return false; }
+    const arr = S.laps[num] ||= [];
+    if(!lap.fb){                                   // настоящий круг вытесняет запасной с тем же номером
+      const i = arr.findIndex(l => l.fb && (l.n === lap.n || (Math.abs(l.ts - lap.ts) < 8000 && Math.abs(l.lt - lap.lt) < 60)));
+      if(i >= 0){ lapIdx.delete(num+'|'+arr[i].id); arr.splice(i,1); }
+    } else if(arr.some(l => !l.fb && (l.n === lap.n || (Math.abs(l.ts - lap.ts) < 8000 && Math.abs(l.lt - lap.lt) < 60)))) return false;
+    let i = arr.length; while(i > 0 && arr[i-1].ts > lap.ts) i--;
+    arr.splice(i, 0, lap); lapIdx.set(key, lap);
+    return true;
+  },
+  pitSignal(num, t, src){
+    if(!S.setup){ return; }
+    if(t < S.setup.atS - 60000){ S.histPit[num] = Math.max(S.histPit[num] || 0, t); return; } // история до старта приложения
+    const win = src === 'count' ? 360000 : 170000;
+    const ex = S.pits.find(p => p.num === num && Math.abs(p.t - t) < win);
+    if(ex){ if(src === 'lap' && ex.src !== 'lap' && ex.src !== 'manual'){ ex.t = t; ex.src = 'lap'; } return ex; }
+    const p = {id:S.seq++, num, t, rt:rtAt(t), lane:null, auto:false, ignored:false, out:null, src, alerted:false};
+    let i = S.pits.length; while(i > 0 && S.pits[i-1].t > t) i--;
+    S.pits.splice(i, 0, p);
+    const tm = S.teams[num];
+    log(`PIT IN №${num} ${tm && tm.name || ''}` + (src !== 'state' ? ` (сигнал: ${src})` : ''), 'pit');
+    const h = this.laneHint[num];
+    if(h && Math.abs(h.t - t) < 90000) this.setAutoLane(p, h.L);
+    return p;
+  },
+  pitOut(num, t){
+    const p = [...S.pits].reverse().find(p => p.num === num && !p.ignored && t - p.t >= -5000 && t - p.t < 600000);
+    if(p && !p.out){ p.out = t; }
+  },
+  laneSignal(num, raw){
+    if(!S.cfg.autoLane) return;
+    const L = normLane(raw); if(!L) return;
+    const t = serverNow();
+    this.laneHint[num] = {L, t};
+    const p = [...S.pits].reverse().find(p => p.num === num && t - p.t < 300000 && t - p.t > -90000);
+    if(p) this.setAutoLane(p, L);
+  },
+  setAutoLane(p, L){
+    if(p.lane && !p.auto) return;                 // ручная разметка важнее
+    if(p.lane === L) return;
+    p.lane = L; p.auto = true;
+    log(`Коридор ${L} для №${p.num} — из данных тайминга`, 'lane');
+    if(p.num === S.setup.our) S.ourNotice = p.id;
+  }
+};
+
+/* --- Действия оператора (с undo) --- */
+const Act = {
+  lane(pitId, L){
+    const p = S.pits.find(p => p.id === pitId); if(!p) return;
+    S.undo.push({k:'lane', id:p.id, lane:p.lane, auto:p.auto});
+    p.lane = L; p.auto = false;
+    log(`Разметка: №${p.num} → коридор ${L}`, 'lane');
+    if(p.num === S.setup.our) S.ourNotice = p.id;
+    Eng.changed();
+  },
+  ignore(pitId){
+    const p = S.pits.find(p => p.id === pitId); if(!p) return;
+    S.undo.push({k:'ign', id:p.id, v:p.ignored});
+    p.ignored = !p.ignored; log(`Пит №${p.num} ${p.ignored ? 'помечен как ложный' : 'восстановлен'}`);
+    Eng.changed();
+  },
+  manualPit(num){
+    const p = Eng.pitSignal(num, serverNow(), 'manual');
+    if(p){ S.undo.push({k:'pit', id:p.id}); }
+    Eng.changed();
+  },
+  edit(e, msg){
+    e.id = S.seq++; e.t = serverNow(); S.edits.push(e);
+    S.undo.push({k:'edit', id:e.id}); log(msg, 'edit'); Eng.changed();
+  },
+  move(kart, lane, idx){ this.edit({type:'move', kart, lane, idx}, `Ручная правка: ${klabel(kart)} → ${lane}, слот ${idx+1}`); },
+  remove(kart){ this.edit({type:'remove', kart}, `Удалён карт ${klabel(kart)} из коридора`); },
+  add(lane){ const id = 'N'+S.seq; this.edit({type:'add', kart:id, lane, idx:1e9}, `Добавлен карт ${id} в хвост ${lane}`); },
+  replace(num){ const id = 'R'+S.seq; this.edit({type:'replace', num, kart:id}, `Замена карта на трассе у №${num}: новый ${id}`); },
+  undo(){
+    const u = S.undo.pop(); if(!u) return;
+    if(u.k === 'lane'){ const p = S.pits.find(p => p.id === u.id); if(p){ p.lane = u.lane; p.auto = u.auto; } }
+    if(u.k === 'ign'){ const p = S.pits.find(p => p.id === u.id); if(p) p.ignored = u.v; }
+    if(u.k === 'pit'){ S.pits = S.pits.filter(p => p.id !== u.id); }
+    if(u.k === 'edit'){ S.edits = S.edits.filter(e => e.id !== u.id); }
+    log('Отмена последнего действия'); Eng.changed();
+  }
+};
+
+/* --- Производное состояние: FIFO-прогон по хронологии + метрики --- */
+function derive(){
+  const out = {lanes:{A:[],B:[]}, teamKart:{}, stints:[], kart:{}, teamStints:{}, pitInfo:{}, lapM:new Map(), refNow:null, teamMean:{}, unassigned:0};
+  if(!S.setup) return out;
+  const K = id => out.kart[id] ||= {id, stints:[], loc:null};
+  const open = (id, num, from, pitId) => { const s = {kart:id, num, from, to:null, pitId}; K(id).stints.push(s); out.stints.push(s); (out.teamStints[num] ||= []).push(s); return s; };
+  const close = (id, num, t) => { const s = K(id).stints.find(s => s.num === num && s.to == null); if(s) s.to = t; };
+  const cur = num => { if(!out.teamKart[num]){ const id = 'S'+num; out.teamKart[num] = id; open(id, num, S.histPit[num] || -Infinity, null); } return out.teamKart[num]; };
+  const retired = new Set();
+  out.lanes.A = S.setup.initA.slice(); out.lanes.B = S.setup.initB.slice();
+  [...out.lanes.A, ...out.lanes.B].forEach(K);
+  Object.keys(S.teams).forEach(cur);
+  const tl = [];
+  for(const p of S.pits) if(!p.ignored) tl.push({t:p.t, o:0, p});
+  for(const e of S.edits) tl.push({t:e.t, o:1, e});
+  tl.sort((a,b) => a.t - b.t || a.o - b.o);
+  const dropFromLanes = id => { for(const L of ['A','B']){ const i = out.lanes[L].indexOf(id); if(i >= 0){ out.lanes[L].splice(i,1); return true; } } return false; };
+  for(const it of tl){
+    if(it.p){
+      const p = it.p, num = p.num, c = cur(num);
+      close(c, num, p.t);
+      let nk;
+      if(p.lane){ out.lanes[p.lane].push(c); nk = out.lanes[p.lane].shift(); }
+      else { nk = 'U'+p.id; out.unassigned++; }
+      open(nk, num, p.t, p.id); out.teamKart[num] = nk;
+      out.pitInfo[p.id] = {gave:c, got:nk};
+    } else {
+      const e = it.e;
+      if(e.type === 'move'){ if(dropFromLanes(e.kart) || !Object.values(out.teamKart).includes(e.kart)){ K(e.kart); out.lanes[e.lane].splice(Math.min(e.idx, out.lanes[e.lane].length), 0, e.kart); } }
+      else if(e.type === 'remove'){ if(dropFromLanes(e.kart)) retired.add(e.kart); }
+      else if(e.type === 'add'){ K(e.kart); out.lanes[e.lane].splice(Math.min(e.idx, out.lanes[e.lane].length), 0, e.kart); }
+      else if(e.type === 'replace'){ const c = cur(e.num); close(c, e.num, e.t); retired.add(c); open(e.kart, e.num, e.t, null); out.teamKart[e.num] = e.kart; }
+    }
+  }
+  // где сейчас карт
+  for(const L of ['A','B']) out.lanes[L].forEach((id,i) => K(id).loc = {lane:L, idx:i});
+  for(const num in out.teamKart) K(out.teamKart[num]).loc = {team:num};
+  for(const id in out.kart) if(!out.kart[id].loc) out.kart[id].loc = retired.has(id) ? {out:'retired'} : {out:'limbo'};
+  metrics(out);
+  return out;
+}
+function median(a){ const n = a.length; return n % 2 ? a[(n-1)/2] : (a[n/2-1] + a[n/2]) / 2; }
+function sortedIns(a, v){ let lo=0, hi=a.length; while(lo<hi){ const m=(lo+hi)>>1; if(a[m]<v) lo=m+1; else hi=m; } a.splice(lo,0,v); }
+function sortedDel(a, v){ let lo=0, hi=a.length; while(lo<hi){ const m=(lo+hi)>>1; if(a[m]<v) lo=m+1; else hi=m; } if(a[lo]===v) a.splice(lo,1); }
+function metrics(out){
+  const cfg = S.cfg, W = cfg.windowMin * 60000, thr = 1 + cfg.cleanPct/100;
+  const pitsBy = {};
+  for(const p of S.pits) if(!p.ignored) (pitsBy[p.num] ||= []).push(p);
+  const all = [];
+  for(const num in S.laps) for(const l of S.laps[num]) if(l.lt > 15000 && l.lt < 900000) all.push([num, l]);
+  all.sort((a,b) => a[1].ts - b[1].ts);
+  const win = [], q = []; let qi = 0;
+  for(const [num, l] of all){
+    const nearPit = (pitsBy[num] || []).some(p => p.t - 5000 <= l.ts && (p.out || p.t + 180000) + 5000 >= l.ts - l.lt);
+    const cand = !(l.f & BAD_LAP) && !nearPit && !(l.n <= 1);
+    if(cand){ q.push(l); sortedIns(win, l.lt); }
+    while(qi < q.length && q[qi].ts < l.ts - W){ sortedDel(win, q[qi].lt); qi++; }
+    const ref = win.length >= 3 ? median(win) : null;
+    const clean = cand && ref != null && l.lt <= ref * thr && l.lt >= ref * 0.85;
+    out.lapM.set(l, {ref, d: ref ? l.lt/ref - 1 : null, clean, cand});
+    if(ref) out.refNow = ref;
+  }
+  const val = s => cfg.rating === 'avg' ? s.avg : cfg.rating === 'best' ? s.best : (s.avg + s.best) / 2;
+  for(const s of out.stints){
+    const laps = (S.laps[s.num] || []).filter(l => l.ts > s.from && (s.to == null || l.ts <= s.to));
+    const ds = []; let last = null;
+    for(const l of laps){ const m = out.lapM.get(l); if(m && m.clean) ds.push(m.d); if(m && m.d != null && !(l.f & BAD_LAP)) last = m.d; }
+    s.n = laps.length; s.nc = ds.length; s.last = last;
+    s.best = ds.length ? Math.min(...ds) : null;
+    s.avg = ds.length ? ds.reduce((a,b)=>a+b,0) / ds.length : null;
+    s.ok = s.nc >= cfg.minClean;
+    s.val = s.ok ? val(s) : null;
+  }
+  for(const num in out.teamStints){
+    let w = 0, sv = 0, c = 0;
+    for(const s of out.teamStints[num]) if(s.ok){ w += s.nc; sv += s.nc * s.val; c++; }
+    out.teamMean[num] = {val: w ? sv/w : null, count:c};
+  }
+  for(const s of out.stints) if(s.ok){
+    const tm = out.teamMean[s.num];
+    s.adj = tm && tm.count >= 2 ? s.val - tm.val : null;
+  }
+  const rated = [];
+  for(const id in out.kart){
+    const k = out.kart[id]; let w = 0, sb = 0, sa = 0, sv = 0, sadj = 0, wadj = 0;
+    for(const s of k.stints) if(s.ok){
+      w += s.nc; sb += s.nc*s.best; sa += s.nc*s.avg; sv += s.nc*s.val;
+      if(s.adj != null){ sadj += s.nc*s.adj; wadj += s.nc; }
+    }
+    k.nq = k.stints.filter(s => s.ok).length;
+    if(w){
+      k.best = sb/w; k.avg = sa/w; k.raw = sv/w; k.adj = wadj ? sadj/wadj : null;
+      k.score = k.raw;
+      if(cfg.teamCorr){ let s2 = 0; for(const s of k.stints) if(s.ok) s2 += s.nc * (s.adj != null ? s.adj : s.val); k.score = s2 / w; }
+      if(!k.loc.out || k.loc.out !== 'retired') rated.push(k);
+    } else { k.score = null; }
+    k.cls = 'u';
+  }
+  rated.sort((a,b) => a.score - b.score);
+  const n = rated.length;
+  rated.forEach((k,i) => {
+    if(n < 3){ k.cls = 'y'; return; }
+    const p = i / (n-1);
+    k.cls = p <= cfg.greenPct/100 ? 'g' : p >= 1 - cfg.redPct/100 ? 'r' : 'y';
+  });
+  // последний кто ездил на карте (для «от какой команды»)
+  for(const id in out.kart){ const st = out.kart[id].stints; const done = st.filter(s => s.to != null); out.kart[id].from = done.length ? done[done.length-1].num : null; }
+}
+
+/* ---------- 5a. Симулятор гонки (выдаёт сообщения в протоколе Kart Chrono) ---------- */
+const SIM_TEAMS = [['1','Progress'],['3','WRW'],['16','AllStars W'],['9','AET TEAM'],['5','Track fight'],['6','Progress 2026'],
+  ['7','WRW Masters'],['4','WRW8'],['10','OnlyKarts'],['13','H4H'],['15','buzzin hornets'],['11','Адреналин'],['14','MGM']];
+const SIM_PILOTS = ['Иванов','Петров','Сидоров','Козлов','Новиков','Морозов','Волков','Лебедев','Соколов','Попов','Зайцев','Павлов','Семёнов','Голубев'];
+function gauss(){ let u=0,v=0; while(!u) u=Math.random(); while(!v) v=Math.random(); return Math.sqrt(-2*Math.log(u))*Math.cos(2*Math.PI*v); }
+const rnd = (a,b) => a + Math.random()*(b-a);
+const Sim = {
+  on:false, timer:null, truth:{}, lastLane:{},
+  start(){
+    KC.disconnect(); this.on = true;
+    this.speed = Math.max(1, +S.cfg.simSpeed || 30);
+    this.base = Date.now(); this.t = 0; this.dur = 5*3600e3; this.lapId = 1; this.last = performance.now();
+    Clock.virt = this.base;
+    this.lanes = {A:S.setup.initA.slice(), B:S.setup.initB.slice()};
+    this.truth = {}; this.lastLane = {};
+    const off = () => Math.max(-0.014, Math.min(0.014, gauss()*0.0055));
+    [...this.lanes.A, ...this.lanes.B].forEach(id => this.truth[id] = off());
+    this.teams = SIM_TEAMS.map(([num,name], i) => {
+      const tm = {cid:200+i, num, name, skill:gauss()*0.006, kart:'S'+num, laps:0, pits:0, pilot:SIM_PILOTS[i],
+        lapStart:i*900, pitOutAt:null, pitInAt:null, last:[0,0,0], state:0};
+      tm.nextPit = rnd(11, 24)*60e3;
+      this.truth[tm.kart] = off();
+      tm.lapEnd = tm.lapStart + this.lapTime(tm, 0);
+      return tm;
+    });
+    const res = {};
+    this.teams.forEach((tm,i) => res[tm.cid] = {1:i+1, 3:tm.num, 4:tm.pilot, 26:tm.name, 5:0, 13:0, 27:0, 10:0, 62:''});
+    KC.handle(JSON.stringify({command:'clear', 100:0, 101:this.dur/1000, 104:'Гонка 5 часов', 105:'СИМУЛЯЦИЯ', 106:1, 108:'finishByTime', results:res}));
+    this.timer = setInterval(() => this.tick(), 200);
+    log(`Симуляция запущена, скорость ×${this.speed}`, 'info');
+  },
+  stop(){ if(this.timer) clearInterval(this.timer); this.timer = null; this.on = false; Clock.virt = null; },
+  pace(t){                                        // темп поля: сухо → дождь → подсыхание
+    const m = t/60000;
+    if(m < 80) return 65000;
+    if(m < 100) return 65000 + (m-80)/20*9500;
+    if(m < 170) return 74500;
+    if(m < 230) return 74500 - (m-170)/60*8000;
+    return 66500 - Math.min(1, (m-230)/70)*800;
+  },
+  lapTime(tm, t){ let lt = this.pace(t) * (1 + this.truth[tm.kart] + tm.skill + gauss()*0.004); if(Math.random() < 0.03) lt += rnd(2500, 9000); return Math.round(lt); },
+  send(tm, diff, lap){
+    Clock.virt = this.base + tm._t;
+    KC.handle(JSON.stringify({results:{[tm.cid]:diff}}));
+    if(lap){
+      const buf = new ArrayBuffer(60), u = new Uint8Array(buf), dv = new DataView(buf);
+      'BINLAPS:'.split('').forEach((c,i) => u[i] = c.charCodeAt(0));
+      const ts = this.base + tm._t;
+      dv.setInt32(8, tm.cid, true); dv.setInt32(12, this.lapId++, true); dv.setInt32(16, lap.n, true); dv.setInt32(20, lap.n, true);
+      dv.setInt32(40, lap.lt, true); dv.setUint32(44, ts % 4294967296, true); dv.setUint32(48, Math.floor(ts/4294967296), true); dv.setInt32(52, lap.f, true);
+      KC.handle(buf);
+    }
+  },
+  tick(){
+    const now = performance.now(), target = Math.min(this.t + (now - this.last) * this.speed, this.dur + 90e3);
+    this.last = now;
+    for(;;){
+      let tm = null, te = Infinity;
+      for(const x of this.teams){ const e = x.pitOutAt != null ? x.pitOutAt : x.lapEnd; if(e < te){ te = e; tm = x; } }
+      if(!tm || te > target) break;
+      tm._t = te;
+      if(tm.pitOutAt != null){                     // выезд с пит-лейна
+        tm.pitOutAt = null; tm.state = ST.PITOUT;
+        this.send(tm, {5:ST.PITOUT, 62:''}, {n:tm.laps, lt:Math.round(te - tm.pitInAt), f:LF.PITOUT});
+        tm.lapStart = te; tm.lapEnd = te + Math.round(this.pace(te)*0.15) + this.lapTime(tm, te);
+        continue;
+      }
+      const lt = Math.round(te - tm.lapStart);
+      if(te >= tm.nextPit && te < this.dur - 6*60e3){   // заезд в пит
+        const L = Math.random() < 0.5 ? 'A' : 'B';
+        tm.pits++; this.lastLane[tm.num] = L;
+        this.lanes[L].push(tm.kart); tm.kart = this.lanes[L].shift();
+        if(Math.random() < 0.7) tm.pilot = SIM_PILOTS[Math.floor(Math.random()*SIM_PILOTS.length)];
+        tm.pitInAt = te; tm.pitOutAt = te + rnd(121, 150)*1000;
+        tm.nextPit = tm.pitInAt + rnd(14, 23)*60e3;
+        tm.state = ST.PITIN;
+        this.send(tm, {5:ST.PITIN, 27:tm.pits, 4:tm.pilot, 62: S.cfg.simAutoLane ? L : ''}, {n:tm.laps, lt:Math.round(lt*0.9), f:LF.PITIN});
+        continue;
+      }
+      tm.laps++;
+      const diff = {13:tm.laps, 10:lt, 11:tm.last[0], 12:tm.last[1]};
+      if(tm.state === ST.PITOUT){ diff[5] = 0; tm.state = 0; }
+      tm.last = [lt, tm.last[0], tm.last[1]];
+      this.send(tm, diff, {n:tm.laps, lt, f:0});
+      tm.lapStart = te; tm.lapEnd = te + this.lapTime(tm, te);
+    }
+    this.t = target; Clock.virt = this.base + this.t;
+    const fin = this.t >= this.dur;
+    KC.handle(JSON.stringify({100:Math.floor(Math.min(this.t,this.dur)/1000), 101:Math.max(0, Math.floor((this.dur - this.t)/1000)), 106: fin ? FLAG.FINISH : 1}));
+    if(this.t >= this.dur + 90e3){ this.stop(); log('Симуляция завершена', 'info'); ui.dirty = true; }
+  }
+};
+
+/* ---------- 5b. Запись и реплей живого потока ---------- */
+function b64(buf){ let s = ''; const u = new Uint8Array(buf); for(let i = 0; i < u.length; i += 8192) s += String.fromCharCode.apply(null, u.subarray(i, i+8192)); return btoa(s); }
+function unb64(s){ const b = atob(s), u = new Uint8Array(b.length); for(let i = 0; i < b.length; i++) u[i] = b.charCodeAt(i); return u.buffer; }
+const Rec = {
+  on:false, items:[],
+  push(d){ if(this.on) this.items.push([Date.now(), typeof d === 'string' ? d : 'B:' + b64(d)]); },
+  download(){ download(`kartchrono-rec-${new Date().toISOString().slice(0,16).replace(/[:T]/g,'-')}.json`, JSON.stringify({trackId:S.cfg.trackId, items:this.items})); }
+};
+const Rep = {
+  on:false, items:null, i:0, timer:null,
+  load(obj){ this.items = obj.items || []; },
+  start(){
+    if(!this.items || !this.items.length) return;
+    KC.disconnect(); this.on = true; this.i = 0;
+    this.t0 = this.items[0][0]; this.real0 = performance.now(); this.speed = Math.max(1, +S.cfg.simSpeed || 30);
+    KC.connAt = this.t0;
+    this.timer = setInterval(() => this.tick(), 100);
+    log(`Реплей записи: ${this.items.length} сообщений, ×${this.speed}`, 'info');
+  },
+  tick(){
+    const vt = this.t0 + (performance.now() - this.real0) * this.speed;
+    while(this.i < this.items.length && this.items[this.i][0] <= vt){
+      const [t, d] = this.items[this.i++];
+      Clock.virt = t;
+      KC.handle(d.startsWith('B:') ? unb64(d.slice(2)) : d);
+    }
+    Clock.virt = vt;
+    if(this.i >= this.items.length){ this.stop(); log('Реплей завершён', 'info'); }
+    ui.dirty = true;
+  },
+  stop(){ if(this.timer) clearInterval(this.timer); this.timer = null; this.on = false; Clock.virt = null; }
+};
+
+/* ---------- 6. UI ---------- */
+const $ = s => document.querySelector(s);
+const esc = s => String(s ?? '').replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+function fmtLap(ms){ if(ms == null || !isFinite(ms)) return '—'; const s = ms/1000, m = Math.floor(s/60); return m ? m + ':' + (s - m*60).toFixed(3).padStart(6,'0') : s.toFixed(3); }
+function fmtDur(ms){ if(ms == null || !isFinite(ms)) return '—'; ms = Math.max(0, ms); const t = Math.floor(ms/1000), h = Math.floor(t/3600), m = Math.floor(t%3600/60), s = t%60; return (h ? h + ':' + String(m).padStart(2,'0') : m) + ':' + String(s).padStart(2,'0'); }
+function fmtS(d){ if(d == null || !isFinite(d)) return '?'; const x = d * (D && D.refNow || 66000) / 1000; return (x > 0.005 ? '+' : x < -0.005 ? '−' : '±') + Math.abs(x).toFixed(2); }
+function fmtP(d){ if(d == null || !isFinite(d)) return '?'; return (d > 0 ? '+' : d < 0 ? '−' : '') + Math.abs(d*100).toFixed(2) + '%'; }
+function hhmm(t){ const d = new Date(t); return String(d.getHours()).padStart(2,'0') + ':' + String(d.getMinutes()).padStart(2,'0') + ':' + String(d.getSeconds()).padStart(2,'0'); }
+function klabel(id){ if(!id) return '?'; const l = S.karts[id] && S.karts[id].label; if(l) return l; return id[0] === 'U' ? '?' + id.slice(1) : id; }
+const CLS_TXT = {g:'быстрый', y:'средний', r:'медленный', u:'нет данных'};
+function kinfo(id){ const k = D && D.kart[id]; return k ? k : {id, cls:'u', stints:[], nq:0, loc:null}; }
+function teamName(num){ const t = S.teams[num]; return t && t.name ? t.name : ''; }
+function stintStartRt(num){ const p = [...S.pits].reverse().find(p => p.num === num && !p.ignored); return p ? p.rt : 0; }
+function lastPit(num){ return [...S.pits].reverse().find(p => p.num === num && !p.ignored); }
+function inPit(num){ const p = lastPit(num); return p && !p.out && serverNow() - p.t < 6*60000 ? p : null; }
+
+const ui = {tab:'pit', dirty:true, dataDirty:true, dragging:false, sheet:null, openKart:null, lastRender:0, confirm:null};
+
+function chip(id, head){
+  const k = kinfo(id), truth = Sim.on && Sim.truth[id] != null ? ` · ист. ${fmtP(Sim.truth[id])}` : '';
+  return `<div class="chip c-${k.cls}${head ? ' head' : ''}" data-act="kart" data-k="${esc(id)}">
+    <div class="cl"><span>${esc(klabel(id))}</span>${head ? '<i>СЛЕДУЮЩИЙ</i>' : ''}</div>
+    <div class="cm">${k.score != null ? `${fmtS(k.best)} / ${fmtS(k.avg)}` : '<span class="muted">нет данных</span>'}</div>
+    <div class="cs">${k.nq || 0} ст.${k.from ? ' · от №' + esc(k.from) : ''}${truth}</div></div>`;
+}
+function kmini(id){ const k = kinfo(id); return `<span class="kmini c-${k.cls}" data-act="kart" data-k="${esc(id)}">${esc(klabel(id))} <b>${k.score != null ? fmtS(k.avg) : '?'}</b></span>`; }
+function kdesc(id){ const k = kinfo(id); return k.score != null ? `лучший <b>${fmtS(k.best)} с</b>, средний <b>${fmtS(k.avg)} с</b> · ${k.nq} ст.` : 'нет данных'; }
+
+function render(){
+  if(ui.dragging) return;
+  const main = $('#main'); const st = main.scrollTop;
+  renderTop();
+  document.querySelectorAll('#tabs button').forEach(b => b.classList.toggle('on', b.dataset.t === ui.tab));
+  const ae = document.activeElement;
+  if(ui.tab === 'cfg' && ae && ae.closest && ae.closest('#main') && ae.tagName === 'INPUT') return; // не мешаем вводу
+  main.innerHTML = ({pit:vPit, track:vTrack, karts:vKarts, log:vLog, cfg:vCfg})[ui.tab]();
+  if(ui.tab === 'pit') initSortable();
+  ui.lastRender = Date.now();
+}
+function renderTop(){
+  const r = S.race, conn = $('#conn');
+  conn.className = 'conn ' + (Sim.on || Rep.on ? 'on' : KC.status);
+  conn.title = Sim.on ? 'симуляция' : Rep.on ? 'реплей' : KC.status === 'on' ? 'данные идут' : KC.status === 'wait' ? 'подключено, ждём данных' : 'нет связи';
+  $('#clock').textContent = S.setup || r.rt != null ? fmtDur(raceNow()) : '—:—';
+  const fl = $('#flag');
+  let ft = 'нет данных', fc = '';
+  if(Sim.on){ ft = 'симуляция'; fc = 'sim'; } else if(Rep.on){ ft = 'реплей'; fc = 'sim'; }
+  if(r.flag === FLAG.RED){ ft = 'красный флаг'; fc = 'red'; }
+  else if(r.flag === FLAG.FINISH){ ft = 'финиш'; fc = 'fin'; }
+  else if(!Sim.on && !Rep.on && KC.status === 'on' && r.rt != null) ft = r.ticking ? 'гонка' : 'стоит';
+  else if(!Sim.on && !Rep.on && KC.status === 'wait') ft = 'нет заезда';
+  fl.textContent = ft; fl.className = 'flag ' + fc;
+  const n = S.pits.filter(p => !p.ignored && !p.lane).length;
+  const qb = $('#qbadge'); qb.hidden = !n; qb.textContent = n + ' ?'; qb.title = n + ' пит-стопов без коридора';
+  $('#undo').disabled = !S.undo.length;
+  const pitBtn = document.querySelector('#tabs button[data-t="pit"]');
+  pitBtn.innerHTML = 'Пит-лейн' + (n ? `<span class="dot">${n}</span>` : '');
+}
+
+/* --- экран «Пит-лейн» --- */
+function vPit(){
+  if(!S.setup) return `<div class="empty">Гонка не настроена. <button class="btn acc" data-act="setup">Настроить старт</button></div>`;
+  const our = S.setup.our;
+  let h = '';
+  if(S.ourNotice){
+    const p = S.pits.find(p => p.id === S.ourNotice), pi = p && D.pitInfo[p.id];
+    if(pi){ const k = kinfo(pi.got); h += `<div class="notice c-${k.cls}"><span>Мы получили карт ${esc(klabel(pi.got))} — ${CLS_TXT[k.cls]}${k.score != null ? ' (' + fmtS(k.avg) + ' с)' : ''}</span><button class="btn sm" data-act="dismiss">OK</button></div>`; }
+  }
+  const pending = S.pits.filter(p => !p.ignored && !p.lane);
+  h += `<section class="sec"><h2>Пит-стопы без коридора ${pending.length ? '(' + pending.length + ')' : ''}</h2>`;
+  if(pending.length > 1) h += `<div class="warnbox">Размечайте по порядку сверху вниз: от порядка зависит очередь в коридорах.</div>`;
+  h += pending.length ? `<div class="list pitfeed">${pending.map(pitCard).join('')}</div>` : `<div class="empty">Нет неразмеченных питов. Новый PIT IN появится здесь.</div>`;
+  h += `</section>`;
+  // если заедем сейчас
+  const hA = D.lanes.A[0], hB = D.lanes.B[0];
+  const kA = hA ? kinfo(hA) : null, kB = hB ? kinfo(hB) : null;
+  let verdict = '50 / 50', vc = '';
+  const c = [kA ? kA.cls : 'u', kB ? kB.cls : 'u'];
+  if(c[0] === 'g' && c[1] === 'g'){ verdict = 'Заезжай'; vc = 'go'; }
+  else if(c[0] === 'r' && c[1] === 'r'){ verdict = 'Лучше подождать'; vc = 'wait'; }
+  else if(c[0] === 'u' && c[1] === 'u') verdict = 'Нет данных';
+  else if((c[0] === 'g' || c[1] === 'g') && c[0] !== 'r' && c[1] !== 'r' && (c[0] === 'g' ? c[1] : c[0]) !== 'u') verdict = 'Неплохо: 50/50 на быстрый';
+  else if(c.includes('r') && !c.includes('g')) verdict = '50/50, риск медленного';
+  const nb = (L, id, k) => `<div class="nowbox c-${k ? k.cls : 'u'}" ${id ? `data-act="kart" data-k="${esc(id)}"` : ''}><div class="ln">КОРИДОР ${L} · ГОЛОВА</div><div class="kl">${id ? esc(klabel(id)) : '—'}</div><div class="mt">${k && k.score != null ? fmtS(k.best) + ' / ' + fmtS(k.avg) + ' с' : 'нет данных'}</div><div class="small muted">${k ? CLS_TXT[k.cls] : 'пусто'}</div></div>`;
+  h += `<section class="sec"><h2>Если заедем сейчас</h2><div class="now">${nb('A', hA, kA)}${nb('B', hB, kB)}<div class="verdict ${vc}">${verdict}</div></div>
+    <div class="small muted" style="margin-top:6px">Наш стинт: ${fmtDur(raceNow() - stintStartRt(our))} · карт ${kmini(D.teamKart[our])}</div></section>`;
+  // коридоры
+  h += `<section class="sec"><h2>Коридоры (сверху — голова, выдаётся следующим)</h2>`;
+  if(D.unassigned) h += `<div class="warnbox" style="margin-bottom:8px">Есть питы без коридора (${D.unassigned}) — очереди могут быть неточными.</div>`;
+  h += `<div class="lanes">${['A','B'].map(L => `<div class="lane"><div class="lh"><span>${L}</span><span class="small muted">${D.lanes[L].length} карт.</span></div>
+    <div class="slots" id="lane${L}" data-lane="${L}">${D.lanes[L].map((id,i) => chip(id, i === 0)).join('')}</div>
+    <button class="addk" data-act="addk" data-l="${L}">+ карт в хвост</button></div>`).join('')}</div></section>`;
+  // недавние
+  const done = S.pits.filter(p => p.lane || p.ignored).slice(-10).reverse();
+  if(done.length) h += `<section class="sec"><h2>Размеченные (последние)</h2><div class="list">${done.map(p => {
+    const pi = D.pitInfo[p.id] || {};
+    return `<div class="row${p.num === our ? ' ours' : ''}"><div class="rowtop"><span class="t">№${esc(p.num)}</span><span class="n">${esc(teamName(p.num))} <span class="muted small">${fmtDur(p.rt)}</span></span>
+      ${p.ignored ? '<span class="muted">ложный</span>' : `<span class="flag">${p.lane}${p.auto ? ' авто' : ''}</span>`}
+      <button class="btn sm" data-act="lane" data-p="${p.id}" data-l="${p.lane === 'A' ? 'B' : 'A'}" ${p.ignored ? 'hidden' : ''}>→ ${p.lane === 'A' ? 'B' : 'A'}</button>
+      <button class="btn sm" data-act="ign" data-p="${p.id}">${p.ignored ? 'вернуть' : 'не пит'}</button></div>
+      ${p.ignored ? '' : `<div class="small">отдал ${kmini(pi.gave)} → получил ${kmini(pi.got)}</div>`}</div>`; }).join('')}</div></section>`;
+  return h;
+}
+function pitCard(p){
+  const our = p.num === S.setup.our, pi = D.pitInfo[p.id] || {}, k = kinfo(pi.gave);
+  const fast = !our && k.cls === 'g';
+  const tIn = serverNow() - p.t;
+  const hint = Sim.on && S.cfg.simHint && Sim.lastLane[p.num] ? `<span class="hint">тест: был ${Sim.lastLane[p.num]}</span>` : '';
+  return `<div class="pitcard${fast ? ' fast' : ''}${our ? ' ours' : ''}">
+    <div><div class="who">№${esc(p.num)} ${esc(teamName(p.num))} <small>${our ? 'НАШ ПИТ · ' : ''}${p.out ? 'уже выехал' : 'в питах ' + fmtDur(tIn)}</small></div>
+    <div class="kk">карт <span class="pill c-${k.cls}">${esc(klabel(pi.gave))}</span> ${kdesc(pi.gave)}</div></div>
+    <div class="ab"><button data-act="lane" data-p="${p.id}" data-l="A" aria-label="Коридор A">A</button><button data-act="lane" data-p="${p.id}" data-l="B" aria-label="Коридор B">B</button></div>
+    <div class="tools"><span class="small muted">PIT IN ${fmtDur(p.rt)}</span>${hint}<span style="flex:1"></span><button class="btn sm" data-act="ign" data-p="${p.id}">не пит</button></div></div>`;
+}
+
+/* --- экран «На трассе» --- */
+function vTrack(){
+  if(!S.setup) return `<div class="empty">Сначала настройте старт.</div>`;
+  const now = raceNow(), cfg = S.cfg;
+  const rows = Object.keys(S.teams).map(num => {
+    const ip = inPit(num), st = now - stintStartRt(num), id = D.teamKart[num];
+    const s = (D.teamStints[num] || []).find(s => s.to == null);
+    return {num, ip, st, id, k:kinfo(id), s};
+  }).sort((a,b) => (a.ip ? 1 : 0) - (b.ip ? 1 : 0) || b.st - a.st);
+  const row = r => {
+    const pct = Math.min(100, r.st / (cfg.stintMax*60000) * 100), m = r.st/60000;
+    const bc = m >= cfg.critMin ? 'crit' : m >= cfg.warnMin ? 'warn' : '';
+    const t = S.teams[r.num] || {};
+    return `<div class="row${r.num === S.setup.our ? ' ours' : ''}${r.k.cls === 'g' && !r.ip ? ' fastglow' : ''}" data-act="team" data-n="${esc(r.num)}">
+      <div class="rowtop"><span class="t">№${esc(r.num)}</span><span class="n">${esc(t.name)} <span class="muted small">${esc(t.pilot || '')}</span></span>${kmini(r.id)}</div>
+      <div class="rowtop"><span class="t num" style="font-size:17px">${r.ip ? 'В ПИТАХ ' + fmtDur(serverNow() - r.ip.t) : fmtDur(r.st)}</span>
+        <span class="n small muted">${r.s ? `кругов ${r.s.n}, чистых ${r.s.nc}${r.s.last != null ? ', посл. ' + fmtS(r.s.last) + ' с' : ''}` : ''}${t.sess != null ? ' · табло ' + fmtDur(t.sess) : ''}</span>
+        ${r.k.cls === 'g' ? '<span class="pill c-g">быстрый</span>' : ''}</div>
+      ${r.ip ? '' : `<div class="bar ${bc}"><i style="width:${pct}%"></i></div>`}</div>`;
+  };
+  const soon = rows.filter(r => !r.ip && r.st >= cfg.warnMin*60000);
+  let h = `<section class="sec"><h2>Скоро в пит (стинт ≥ ${cfg.warnMin} мин)</h2>`;
+  h += soon.length ? `<div class="soon${soon.some(r => r.st >= cfg.critMin*60000) ? ' crit' : ''}">${soon.map(row).join('')}</div>` : `<div class="empty">Никого. Лимит стинта ${cfg.stintMax} мин.</div>`;
+  h += `</section><section class="sec"><h2>Все команды</h2><div class="list">${rows.filter(r => !soon.includes(r)).map(row).join('') || '<div class="empty">Команд пока нет — ждём данных тайминга.</div>'}</div></section>`;
+  return h;
+}
+
+/* --- экран «Карты» --- */
+function locTxt(k){
+  const l = k.loc; if(!l) return '';
+  if(l.lane) return `коридор ${l.lane}, слот ${l.idx+1}${l.idx === 0 ? ' (голова)' : ''}`;
+  if(l.team) return `на трассе у №${l.team} ${teamName(l.team)}`;
+  return l.out === 'retired' ? 'выбыл' : 'неизвестно (пит без коридора)';
+}
+function vKarts(){
+  if(!S.setup) return `<div class="empty">Сначала настройте старт.</div>`;
+  const ks = Object.values(D.kart).sort((a,b) => (a.score == null) - (b.score == null) || a.score - b.score || a.id.localeCompare(b.id));
+  let h = `<section class="sec"><h2>Карты по рейтингу (${ks.length})</h2><div class="small muted" style="margin-bottom:8px">Дельта к медиане чистых кругов поля за ${S.cfg.windowMin} мин. Секунды — в текущем темпе (эталон ${fmtLap(D.refNow)}). Рейтинг: ${S.cfg.rating === 'mix' ? 'среднее лучшего и среднего' : S.cfg.rating === 'best' ? 'лучший' : 'средний'}${S.cfg.teamCorr ? ', с поправкой на команду' : ''}.</div><div class="list">`;
+  for(const k of ks){
+    const open = ui.openKart === k.id;
+    h += `<div class="row"><div class="rowtop" data-act="kopen" data-k="${esc(k.id)}"><span class="pill c-${k.cls}">${esc(klabel(k.id))}</span>
+      <span class="n num">${k.score != null ? `${fmtS(k.best)} / ${fmtS(k.avg)} с · ${fmtP(k.score)}` : 'нет данных'}</span><span class="small muted">${k.nq}/${k.stints.length} ст.</span></div>
+      <div class="small muted">${locTxt(k)}${k.adj != null ? ' · поправка на команду ' + fmtP(k.adj) : ''}${Sim.on && Sim.truth[k.id] != null ? ' · истина ' + fmtP(Sim.truth[k.id]) : ''}</div>`;
+    if(open){
+      h += `<div class="tbl-wrap"><table><tr><th>Команда</th><th>Круги</th><th>Чист.</th><th>Лучш.</th><th>Средн.</th><th>Попр.</th></tr>${k.stints.map(s =>
+        `<tr><td>№${esc(s.num)} ${esc(teamName(s.num))}${s.to == null ? ' ▶' : ''}</td><td>${s.n}</td><td>${s.nc}</td><td>${fmtS(s.best)}</td><td>${fmtS(s.avg)}</td><td>${s.adj != null ? fmtP(s.adj) : '—'}</td></tr>`).join('')}</table></div>
+        <div class="btnrow"><button class="btn sm" data-act="kart" data-k="${esc(k.id)}">Метка / действия</button></div>`;
+    }
+    h += `</div>`;
+  }
+  return h + `</div></section>`;
+}
+
+/* --- экран «Лог» --- */
+function vLog(){
+  return `<section class="sec"><h2>Лог событий</h2>${S.log.slice(0,300).map(e => `<div class="logi"><span class="lt">${fmtDur(e.rt)}<br>${hhmm(e.t)}</span><span>${esc(e.m)}</span></div>`).join('') || '<div class="empty">Пусто</div>'}</section>`;
+}
+
+/* --- экран «Настройки» --- */
+function vCfg(){
+  const c = S.cfg;
+  const num = (k, label, sub, min, max, step) => `<div class="fld"><label for="cf-${k}">${label}${sub ? `<small>${sub}</small>` : ''}</label><input type="number" id="cf-${k}" data-cfg="${k}" value="${c[k]}" min="${min}" max="${max}" step="${step||1}"></div>`;
+  const chk = (k, label, sub) => `<div class="fld"><label for="cf-${k}">${label}${sub ? `<small>${sub}</small>` : ''}</label><input type="checkbox" id="cf-${k}" data-cfg="${k}" ${c[k] ? 'checked' : ''}></div>`;
+  const cb = (a, text, cls) => `<button class="btn ${cls||''}" data-act="${a}">${ui.confirm === a ? 'Точно? Нажмите ещё раз' : text}</button>`;
+  return `<section class="sec form"><h2>Гонка</h2>
+    <div class="fld wide"><div>${S.setup ? `Наша команда <b>№${esc(S.setup.our)}</b>, на старте в A: ${S.setup.laneA}, в B: ${S.setup.laneB}` : 'Старт не настроен'}</div>
+    <div class="btnrow"><button class="btn" data-act="setup">${S.setup ? 'Изменить нашу команду' : 'Настроить старт'}</button>${cb('reset','Сбросить гонку','danger')}</div></div>
+    <h2>Тайминг</h2>
+    <div class="fld wide"><label for="cf-trackId">trackId трека Kart Chrono<small>Стайки: ${STAYKI_TRACK}</small></label><input type="text" id="cf-trackId" data-cfg="trackId" value="${esc(c.trackId)}"></div>
+    <div class="fld wide"><div class="small">Статус: <b>${Sim.on ? 'симуляция' : Rep.on ? 'реплей' : KC.status === 'on' ? 'данные идут' : KC.status === 'wait' ? 'подключено, заезда нет' : 'отключено'}</b>${S.offset != null ? ` · сдвиг часов ${(S.offset/1000).toFixed(1)} с` : ''}${S.race.runName ? ` · заезд «${esc(S.race.runName)}»` : ''}</div>
+      <div class="btnrow"><button class="btn acc" data-act="connect">Подключиться</button><button class="btn" data-act="disconnect">Отключиться</button></div></div>
+    ${chk('autoLane','Коридор из данных (поле 62)','PIT_LANE_SELECT; если тайминг его шлёт — разметка автоматическая')}
+    <h2>Метрики</h2>
+    ${num('windowMin','Окно эталона, мин','медиана чистых кругов всех команд',1,30)}
+    ${num('cleanPct','Порог «грязного» круга, %','медленнее эталона больше чем на',3,40)}
+    ${num('minClean','Мин. чистых кругов в стинте','иначе стинт не идёт в рейтинг',1,20)}
+    <div class="fld"><label for="cf-rating">Рейтинг по</label><select id="cf-rating" data-cfg="rating"><option value="mix" ${c.rating==='mix'?'selected':''}>лучший+средний</option><option value="avg" ${c.rating==='avg'?'selected':''}>средний</option><option value="best" ${c.rating==='best'?'selected':''}>лучший</option></select></div>
+    ${chk('teamCorr','Поправка на команду','дельта стинта минус средняя дельта команды (если у команды ≥2 стинтов)')}
+    ${num('greenPct','Зелёные, % лучших','',5,60)}
+    ${num('redPct','Красные, % худших','',5,60)}
+    <h2>Стинты и алерты</h2>
+    ${num('warnMin','Жёлтый «скоро в пит», мин','',5,60)}
+    ${num('critMin','Красный, мин','',5,60)}
+    ${num('stintMax','Лимит стинта, мин','',10,90)}
+    ${chk('sound','Звук алерта','быстрый карт заехал в пит-лейн')}
+    <div class="btnrow"><button class="btn" data-act="testalarm">Проверить звук</button></div>
+    <h2>Данные</h2>
+    <div class="btnrow"><button class="btn" data-act="export">Экспорт JSON</button><button class="btn" data-act="import">Импорт JSON</button></div>
+    <h2>Тест без живой гонки</h2>
+    ${num('simSpeed','Ускорение','для симуляции и реплея',1,240)}
+    ${chk('simAutoLane','Симуляция шлёт коридор в поле 62','проверка автоматической разметки')}
+    ${chk('simHint','Подсказка истинного коридора','на карточке пита, только в симуляции')}
+    <div class="btnrow">${Sim.on ? '<button class="btn danger" data-act="simstop">Остановить симуляцию</button>' : cb('simstart','Симуляция 5 ч (сбросит гонку)','acc')}</div>
+    <div class="fld wide"><div>Запись живого потока: <b>${Rec.on ? 'идёт' : 'выкл'}</b>, сообщений ${Rec.items.length}</div>
+      <div class="btnrow"><button class="btn" data-act="rec">${Rec.on ? 'Остановить запись' : 'Начать запись'}</button><button class="btn" data-act="recdl" ${Rec.items.length ? '' : 'disabled'}>Скачать запись</button>
+      ${Rep.on ? '<button class="btn danger" data-act="repstop">Остановить реплей</button>' : cb('repload','Реплей файла записи (сбросит гонку)')}</div></div>
+    <p class="small muted">Пит-радар · данные: ${esc(c.wsUrl)}</p></section>`;
+}
+
+/* --- модалка старта и шторка карта --- */
+function showSetup(){
+  const our = (S.setup && S.setup.our) || '', a = S.setup ? S.setup.laneA : 2, b = S.setup ? S.setup.laneB : 2;
+  const teams = Object.values(S.teams).sort((x,y) => (+x.num||0) - (+y.num||0));
+  const locked = !!(S.setup && (S.pits.length || S.edits.length));
+  $('#modal').innerHTML = `<div class="modal"><form class="sheet" id="setupForm"><h3>Старт гонки</h3>
+    <div class="fld"><label for="su-our">Номер нашей команды</label><input type="text" id="su-our" inputmode="numeric" list="teamsList" value="${esc(our || (Sim.on || ui.pendingSim ? '9' : ''))}" required style="width:110px"></div>
+    <datalist id="teamsList">${teams.map(t => `<option value="${esc(t.num)}">${esc(t.name)}</option>`).join('')}</datalist>
+    ${locked ? '<div class="small muted">Число картов в коридорах уже не меняется — гонка идёт. Правьте коридоры вручную на экране «Пит-лейн».</div>' :
+    ['A','B'].map(L => `<div class="fld"><label>Свободных картов в коридоре ${L} на старте</label><div class="stepper"><button type="button" data-act="step" data-l="${L}" data-d="-1">−</button><output id="su-${L}">${L === 'A' ? a : b}</output><button type="button" data-act="step" data-l="${L}" data-d="1">+</button></div></div>`).join('')}
+    <div class="small muted">Стартовые карты команд и карты в коридорах — неизвестные, рейтинг появится после первого стинта.</div>
+    <button class="btn acc" type="submit" style="min-height:56px;font-size:19px">${locked ? 'Сохранить' : 'Начать'}</button>
+    ${S.setup ? '<button class="btn" type="button" data-act="closemodal">Отмена</button>' : ''}</form></div>`;
+  $('#setupForm').addEventListener('submit', ev => {
+    ev.preventDefault();
+    const ourV = $('#su-our').value.trim(); if(!ourV) return;
+    if(locked){ S.setup.our = ourV; }
+    else {
+      const nA = +$('#su-A').value, nB = +$('#su-B').value;
+      S.setup = {our:ourV, laneA:nA, laneB:nB, initA:[...Array(nA)].map((_,i) => 'A'+(i+1)), initB:[...Array(nB)].map((_,i) => 'B'+(i+1)), at:Clock.now(), atS:serverNow()};
+      log(`Старт настроен: мы №${ourV}, коридор A — ${nA}, B — ${nB}`, 'info');
+    }
+    $('#modal').innerHTML = '';
+    if(ui.pendingSim){ ui.pendingSim = false; S.setup.at = Date.now(); S.setup.atS = Date.now(); Sim.start(); }
+    if(ui.pendingRep){ ui.pendingRep = false; S.setup.at = Rep.items[0][0]; S.setup.atS = Rep.items[0][0] - 120000; Rep.start(); }
+    Eng.changed(); saveNow(); ui.dirty = true;
+  });
+}
+function showKart(id){
+  const k = kinfo(id), inLane = k.loc && k.loc.lane;
+  $('#modal').innerHTML = `<div class="modal" data-act="closemodal"><div class="sheet" data-stop="1"><h3><span class="pill c-${k.cls}">${esc(klabel(id))}</span> ${CLS_TXT[k.cls]}</h3>
+    <div>${kdesc(id)}</div><div class="small muted">${locTxt(k)} · id ${esc(id)}</div>
+    <div class="fld"><label for="klabel">Метка (номер на кузове)</label><input type="text" id="klabel" value="${esc(S.karts[id] && S.karts[id].label || '')}" style="width:130px"></div>
+    <button class="btn" data-act="klabel" data-k="${esc(id)}">Сохранить метку</button>
+    ${inLane ? `<div class="grid2"><button class="btn" data-act="kmv" data-k="${esc(id)}" data-l="A" data-i="0">В голову A</button><button class="btn" data-act="kmv" data-k="${esc(id)}" data-l="B" data-i="0">В голову B</button>
+      <button class="btn" data-act="kmv" data-k="${esc(id)}" data-l="A" data-i="999">В хвост A</button><button class="btn" data-act="kmv" data-k="${esc(id)}" data-l="B" data-i="999">В хвост B</button></div>
+      <button class="btn danger" data-act="krm" data-k="${esc(id)}">Убрать из коридора</button>` : ''}
+    <button class="btn" data-act="closemodal">Закрыть</button></div></div>`;
+}
+function showTeam(num){
+  const t = S.teams[num] || {}, id = D.teamKart[num];
+  $('#modal').innerHTML = `<div class="modal" data-act="closemodal"><div class="sheet" data-stop="1"><h3>№${esc(num)} ${esc(t.name || '')}</h3>
+    <div>Пилот: ${esc(t.pilot || '—')} · карт ${kmini(id)}</div>
+    <button class="btn" data-act="mpit" data-n="${esc(num)}">Отметить PIT IN сейчас (если тайминг пропустил)</button>
+    <button class="btn danger" data-act="repl" data-n="${esc(num)}">Замена карта на трассе (поломка)</button>
+    <button class="btn" data-act="closemodal">Закрыть</button></div></div>`;
+}
+
+function initSortable(){
+  if(!window.Sortable) return;
+  ['A','B'].forEach(L => {
+    const el = document.getElementById('lane' + L); if(!el) return;
+    Sortable.create(el, {group:'lanes', animation:120, delay:180, delayOnTouchOnly:true, ghostClass:'ghost',
+      onStart(){ ui.dragging = true; },
+      onEnd(ev){ ui.dragging = false; if(ev.from === ev.to && ev.oldIndex === ev.newIndex) return; Act.move(ev.item.dataset.k, ev.to.dataset.lane, ev.newIndex); ui.dirty = true; }});
+  });
+}
+
+/* --- алерты --- */
+const Snd = {
+  ctx:null,
+  unlock(){ try{ if(!this.ctx) this.ctx = new (window.AudioContext || window.webkitAudioContext)(); if(this.ctx.state === 'suspended') this.ctx.resume(); }catch(e){} },
+  play(){
+    if(!this.ctx) return; const c = this.ctx; let t = c.currentTime + 0.02;
+    [[988,.16],[1319,.16],[1760,.32],[0,.12],[988,.16],[1319,.16],[1760,.32]].forEach(([f,d]) => {
+      if(f){ const o = c.createOscillator(), g = c.createGain(); o.type = 'square'; o.frequency.value = f; g.gain.setValueAtTime(.25, t); g.gain.exponentialRampToValueAtTime(.001, t + d); o.connect(g).connect(c.destination); o.start(t); o.stop(t + d); }
+      t += d;
+    });
+  }
+};
+function alarm(){
+  if(S.cfg.sound) Snd.play();
+  try{ navigator.vibrate && navigator.vibrate([300,100,300,100,700]); }catch(e){}
+  const f = document.createElement('div'); f.className = 'flash'; document.body.appendChild(f); setTimeout(() => f.remove(), 3000);
+}
+function checkAlerts(){
+  if(!S.setup) return;
+  for(const p of S.pits){
+    if(p.alerted) continue;
+    p.alerted = true;
+    if(p.ignored || p.num === S.setup.our) continue;
+    if(serverNow() - p.t > 180000) continue;            // старые события (после перезагрузки) не звеним
+    const pi = D.pitInfo[p.id];
+    if(pi && kinfo(pi.gave).cls === 'g'){ alarm(); log(`АЛЕРТ: быстрый карт ${klabel(pi.gave)} уходит в пит-лейн с №${p.num}`, 'alert'); ui.tab = 'pit'; }
+  }
+}
+
+/* --- скачать / загрузить --- */
+function download(name, text){
+  const a = document.createElement('a'); a.href = URL.createObjectURL(new Blob([text], {type:'application/json'})); a.download = name;
+  document.body.appendChild(a); a.click(); setTimeout(() => { URL.revokeObjectURL(a.href); a.remove(); }, 1000);
+}
+function readFile(input, cb){
+  input.onchange = () => { const f = input.files[0]; if(!f) return; const r = new FileReader(); r.onload = () => { try{ cb(JSON.parse(r.result)); }catch(e){ log('Не удалось прочитать файл: ' + e.message, 'warn'); ui.dirty = true; } input.value = ''; }; r.readAsText(f); };
+  input.click();
+}
+function resetRace(){ Sim.stop(); Rep.stop(); S = fresh(S.cfg); rebuildIdx(); KC.comp = {}; Eng.laneHint = {}; ui.openKart = null; }
+
+/* --- обработчики --- */
+let wakeLock = null;
+async function wake(){ try{ if(!wakeLock && navigator.wakeLock){ wakeLock = await navigator.wakeLock.request('screen'); wakeLock.addEventListener('release', () => wakeLock = null); } }catch(e){} }
+const twoStep = (key, fn) => { if(ui.confirm === key){ ui.confirm = null; fn(); } else { ui.confirm = key; setTimeout(() => { if(ui.confirm === key){ ui.confirm = null; ui.dirty = true; } }, 3500); } ui.dirty = true; };
+const A = {
+  tab: d => { ui.tab = d.t; ui.dirty = true; $('#main').scrollTop = 0; window.scrollTo(0,0); },
+  lane: d => { Act.lane(+d.p, d.l); },
+  ign: d => Act.ignore(+d.p),
+  undo: () => Act.undo(),
+  kart: d => showKart(d.k),
+  kopen: d => { ui.openKart = ui.openKart === d.k ? null : d.k; ui.dirty = true; },
+  klabel: d => { const v = $('#klabel').value.trim(); S.karts[d.k] = {...(S.karts[d.k]||{}), label:v}; Eng.changed(); $('#modal').innerHTML = ''; },
+  kmv: d => { Act.move(d.k, d.l, +d.i); $('#modal').innerHTML = ''; },
+  krm: d => { Act.remove(d.k); $('#modal').innerHTML = ''; },
+  addk: d => Act.add(d.l),
+  team: d => showTeam(d.n),
+  mpit: d => { Act.manualPit(d.n); $('#modal').innerHTML = ''; },
+  repl: d => { Act.replace(d.n); $('#modal').innerHTML = ''; },
+  closemodal: (d, el, ev) => { if(ev.target.closest('[data-stop]') && !el.matches('button')) return; $('#modal').innerHTML = ''; },
+  dismiss: () => { S.ourNotice = null; Eng.changed(); },
+  setup: () => showSetup(),
+  step: d => { const o = $('#su-' + d.l); o.value = o.textContent = Math.max(0, Math.min(8, +o.textContent + +d.d)); },
+  reset: () => twoStep('reset', () => { resetRace(); log('Гонка сброшена'); saveNow(); showSetup(); KC.connect(); }),
+  connect: () => { Sim.stop(); Rep.stop(); KC.disconnect(); KC.connect(); },
+  disconnect: () => KC.disconnect(),
+  testalarm: () => alarm(),
+  export: () => download(`pitradar-${new Date().toISOString().slice(0,16).replace(/[:T]/g,'-')}.json`, JSON.stringify(S)),
+  import: () => readFile($('#fileImport'), obj => { if(obj && obj.v === 1){ S = obj; S.cfg = {...DEF_CFG, ...S.cfg}; rebuildIdx(); log('Состояние импортировано'); Eng.changed(); saveNow(); } }),
+  simstart: () => twoStep('simstart', () => { resetRace(); ui.pendingSim = true; showSetup(); }),
+  simstop: () => { Sim.stop(); log('Симуляция остановлена'); },
+  rec: () => { Rec.on = !Rec.on; if(Rec.on && !Rec.items.length) log('Запись потока начата'); },
+  recdl: () => Rec.download(),
+  repload: () => twoStep('repload', () => readFile($('#fileRec'), obj => { Rep.load(obj); if(!Rep.items.length) return; resetRace(); if(obj.trackId) S.cfg.trackId = obj.trackId; ui.pendingRep = true; showSetup(); })),
+  repstop: () => { Rep.stop(); log('Реплей остановлен'); }
+};
+document.addEventListener('click', ev => {
+  const el = ev.target.closest('[data-act]'); if(!el) return;
+  Snd.unlock(); wake();
+  const fn = A[el.dataset.act]; if(fn){ fn(el.dataset, el, ev); ui.dirty = true; }
+});
+document.addEventListener('change', ev => {
+  const el = ev.target; if(!el.dataset || !el.dataset.cfg) return;
+  const k = el.dataset.cfg;
+  S.cfg[k] = el.type === 'checkbox' ? el.checked : el.type === 'number' ? +el.value : el.value;
+  if(k === 'trackId' && !Sim.on && !Rep.on){ KC.disconnect(); KC.comp = {}; KC.connect(); }
+  Eng.changed(); saveNow(); ui.dirty = true;
+});
+document.addEventListener('visibilitychange', () => { if(document.hidden) saveNow(); else { wakeLock = null; wake(); } });
+window.addEventListener('pagehide', saveNow);
+
+/* --- главный цикл --- */
+function loop(){
+  if(ui.dataDirty){ ui.dataDirty = false; D = derive(); checkAlerts(); ui.dirty = true; }
+  const since = Date.now() - ui.lastRender;
+  if((ui.dirty && since > 250) || since > 1000){ ui.dirty = false; render(); }
+}
+load();
+D = derive();
+for(const p of S.pits) p.alerted = true;                 // после перезагрузки старые питы не звенят
+if(!S.setup) showSetup();
+if(S.cfg.live) KC.connect();
+setInterval(loop, 200);
+render();
+</script>
+</body>
+</html>
