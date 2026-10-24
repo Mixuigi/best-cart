@@ -49,6 +49,12 @@ select{max-width:60%}
 .laps div{display:flex;justify-content:space-between;padding:6px 2px;border-bottom:1px solid var(--line)}
 .laps .pb{color:var(--ok)}
 .warn{color:var(--acc)}
+.pocketBtn{width:100%}
+#pocket{position:fixed;inset:0;z-index:100;background:#000;color:#2a2a2a;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:18px;
+  touch-action:none;user-select:none;-webkit-user-select:none;padding:env(safe-area-inset-top,0px) 16px env(safe-area-inset-bottom,0px)}
+#pocket .pk-lap{font:700 64px 'Roboto Mono',monospace}
+#pocket .pk-hint{font-size:15px;text-align:center}
+#pkExit{background:#222;color:#ddd;border-color:#444;min-height:64px;min-width:200px;font-size:20px}
 </style>
 
 <div class="wrap">
@@ -71,7 +77,13 @@ select{max-width:60%}
     <button id="again">🔁 Повторить</button>
     <button id="testV">🔊 Проверить голос</button>
   </div>
+  <button class="pocketBtn" id="pocketOn">🌑 Карманный режим (экран не гаснет, но чёрный)</button>
   <p class="hint" id="bgHint"></p>
+  <div id="pocket" hidden>
+    <div class="pk-lap" id="pkLap"></div>
+    <div class="pk-hint">Карманный режим: экран чёрный и не реагирует на касания.<br>Выйти — удерживай палец 3 с, затем нажми «Выйти».</div>
+    <button id="pkExit" hidden>Выйти</button>
+  </div>
 
   <div class="card">
     <h2>Мой карт</h2>
@@ -423,6 +435,33 @@ function stop(){
   ui();
 }
 
+/* ---------- Карманный режим: Chrome на Android теряет мобильный интернет при выключенном экране,
+   поэтому экран остаётся включённым (wake lock), но чёрным и глухим к случайным касаниям ---------- */
+const Pocket = {
+  hold:null, hide:null,
+  on(){
+    if(!running) start();
+    $('#pocket').hidden = false; lockScreenOn();
+    try{ document.documentElement.requestFullscreen().catch(() => {}); }catch(e){}
+  },
+  off(){
+    $('#pocket').hidden = true; $('#pkExit').hidden = true;
+    try{ if(document.fullscreenElement) document.exitFullscreen(); }catch(e){}
+  },
+  bind(){
+    const el = $('#pocket'), stop = e => { e.preventDefault(); e.stopPropagation(); };
+    $('#pocketOn').onclick = () => this.on();
+    el.addEventListener('pointerdown', e => {
+      if(e.target.id === 'pkExit') return;
+      stop(e); clearTimeout(this.hold);
+      this.hold = setTimeout(() => { $('#pkExit').hidden = false; clearTimeout(this.hide); this.hide = setTimeout(() => $('#pkExit').hidden = true, 4000); }, 3000);
+    });
+    for(const ev of ['pointerup','pointercancel','pointerleave']) el.addEventListener(ev, () => clearTimeout(this.hold));
+    for(const ev of ['click','contextmenu','touchstart','touchmove']) el.addEventListener(ev, e => { if(e.target.id !== 'pkExit') stop(e); }, {passive:false});
+    $('#pkExit').onclick = () => this.off();
+  }
+};
+
 /* ---------- UI ---------- */
 function ui(){
   const st = Test.t ? 'on' : KC.status;
@@ -437,6 +476,7 @@ function ui(){
   const me = Object.values(KC.comp).find(c => String(c[F.NUM]) === String(cfg.num));
   $('#lap').textContent = last ? fmt(last.lt) : me && me[F.LAST1] > 0 ? fmt(me[F.LAST1]) : '-:--.--';
   $('#lap').className = 'lap' + (last && last.pb ? ' pb' : '');
+  $('#pkLap').textContent = last ? fmt(last.lt) : '';
   $('#best').textContent = fmt(me ? me[F.BEST] : last && last.best);
   $('#pos').textContent = (me ? me[F.POS] : last && last.pos) || '—';
   $('#laps').textContent = (me ? me[F.LAPS] : last && last.n) ?? '—';
@@ -466,6 +506,7 @@ function bind(){
   $('#chips').onclick = e => { const b = e.target.closest('[data-n]'); if(!b) return; cfg.num = b.dataset.n; num.value = cfg.num; saveCfg(); last = null; ui(); };
   $('#go').onclick = () => running ? stop() : start();
   $('#again').onclick = repeatLast;
+  Pocket.bind();
   $('#testV').onclick = () => { Clips.audio().resume(); Voice.say([...lapKeys(64326), '.', 'leader', ',', ...lapKeys(63412), '.']); };
   $('#test').onclick = () => Test.toggle();
   $('#stayki').onclick = () => { cfg.track = STAYKI; $('#track').value = STAYKI; saveCfg(); if(running){ KC.close(); KC.comp = {}; KC.open(); } };
