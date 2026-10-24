@@ -360,19 +360,39 @@ const curVoice = () => cfg.voice.startsWith('nn:') ? VOICES[cfg.voice.slice(3)] 
 if(cfg.voice.startsWith('nn:') && !VOICES[cfg.voice.slice(3)]) cfg.voice = DEF.voice;
 
 const Clips = {                              // нейроголос: заранее скачанные фрагменты, склейка через WebAudio
-  ctx:null, buf:{}, name:null, ready:false, until:0,
+  ctx:null, buf:{}, name:null, ready:false, loading:false, errs:[], until:0,
   audio(){ return this.ctx ||= new (window.AudioContext || window.webkitAudioContext)(); },
+  // Качаем по 6 фрагментов, каждый до 3 попыток; не докачалось — пробуем снова через 15 с.
+  // Раньше один сбой на мобильном интернете навсегда переключал на системный голос.
   async load(name){
-    if(this.name === name) return;
-    this.name = name; this.ready = false; this.buf = {};
-    const ctx = this.audio(), buf = {};
-    await Promise.all(CLIP_KEYS.map(async k => {
-      try{ const r = await fetch(`snd/${name}/${k}.mp3`); if(r.ok) buf[k] = trimSilence(await ctx.decodeAudioData(await r.arrayBuffer())); }catch(e){}
-    }));
+    if(this.name === name && (this.ready || this.loading)) return;
+    if(this.name !== name) this.buf = {};
+    this.name = name; this.ready = false; this.loading = true; this.errs = [];
+    const ctx = this.audio(), buf = this.buf, todo = CLIP_KEYS.filter(k => !buf[k]);
+    let next = 0;
+    const worker = async () => {
+      while(next < todo.length && this.name === name){
+        const k = todo[next++];
+        for(let a = 0; a < 3 && !buf[k]; a++){
+          try{
+            const r = await fetch(`snd/${name}/${k}.mp3`);
+            if(!r.ok) throw new Error('HTTP ' + r.status);
+            buf[k] = trimSilence(await ctx.decodeAudioData(await r.arrayBuffer()));
+          }catch(e){
+            if(a === 2) this.errs.push(k + ': ' + (e && e.message || e));
+            else await new Promise(res => setTimeout(res, 600 * (a + 1)));
+          }
+        }
+        ui();
+      }
+    };
+    await Promise.all(Array.from({length: 6}, worker));
     if(this.name !== name) return;
-    this.buf = buf; this.ready = CLIP_KEYS.every(k => buf[k]);
+    this.loading = false; this.ready = CLIP_KEYS.every(k => buf[k]);
+    if(!this.ready) setTimeout(() => { if(this.name === name && !this.ready) this.load(name); }, 15000);
     ui();
   },
+  progress(){ return CLIP_KEYS.filter(k => this.buf[k]).length; },
   play(seq){
     const c = this.audio(); if(c.state !== 'running') c.resume();
     const gap = 0.1 / +cfg.rate, stop = 0.45 / +cfg.rate;
@@ -747,7 +767,9 @@ function ui(){
   $('#gap').textContent = fmtGap(me ? me[F.DIFF] : last && last.gap);
   $('#leaderLbl').textContent = {p1best:'Лидер, лучший', p1last:'Лидер, последний', best:'Лучший заезда', off:'Лидер'}[cfg.leaderMode];
   $('#leader').textContent = last && last.me1 ? 'ты лидер' : fmt(last && last.leader);
-  $('#bgHint').innerHTML = cfg.voice.startsWith('nn:') && !Voice.neural() ? '<span class="warn">Загружаю нейроголос… пока говорит системный голос.</span>'
+  $('#bgHint').innerHTML = cfg.voice.startsWith('nn:') && !Voice.neural()
+      ? `<span class="warn">Загружаю голос «${esc((curVoice() || {}).name || '')}»: ${Clips.progress()}/${CLIP_KEYS.length}… пока говорит системный голос.`
+        + (Clips.errs.length ? `<br>Не скачалось ${Clips.errs.length}, пробую снова. ${esc(Clips.errs[0])}` : '') + '</span>'
     : window.GolosApp ? '📱 Приложение: работает в фоне, экран можно выключать.'
     : running && +cfg.keep === 0 ? '<span class="warn">Фоновый звук выключен — при выключенном экране браузер может заснуть.</span>' : '';
   const chips = Object.values(KC.comp).filter(c => c[F.NUM] != null && c[F.NUM] !== '')
