@@ -441,6 +441,8 @@ const Test = {
 function start(){
   running = true;
   Keep.start();                       // в обработчике нажатия — иначе браузер не даст играть звук
+  // iPhone: без этого беззвучный режим (переключатель сбоку) глушит WebAudio, Safari 17+
+  try{ if(navigator.audioSession) navigator.audioSession.type = 'playback'; }catch(e){}
   Clips.audio().resume();             // AudioContext оживает только по нажатию
   Voice.say(!cfg.num ? ['setnum', '.'] : ['watch', numKey(+cfg.num), '.'].filter(Boolean));
   KC.open(); lockScreenOn(); ui();
