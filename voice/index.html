@@ -143,7 +143,6 @@ select{max-width:60%}
     <label><span>«Твой лучший круг» при личном рекорде</span><input type="checkbox" id="sayPb"></label>
     <label><span>Предупреждать о потере связи</span><input type="checkbox" id="sayConn"></label>
     <label><span>Голос</span><select id="voice"></select></label>
-    <label><span>Эффект (для нейроголоса)</span><select id="fx"><option value="none">без эффекта</option><option value="robot">робот — ИИ из фантастики</option></select></label>
     <label><span>Темп (у нейроголоса — только паузы)</span><select id="rate"><option value="0.9">медленно</option><option value="1">обычно</option><option value="1.15">быстрее</option><option value="1.3">быстро</option></select></label>
   </div>
 
@@ -296,12 +295,13 @@ function searchTracks(query){
   return res.sort((a, b) => b[0] - a[0] || a[1] - b[1]).map(([, i]) => TRACKS[i]);
 }
 const KEY = 'lapvoice.v1';
-const DEF = {num:'', track:STAYKI, rep:2, leaderMode:'p1best', leaderWhen:'new', sayPos:true, sayGap:false, sayPb:true, sayConn:true, voice:'nn:svetlana', fx:'none', rate:1, keep:2, board:false};
+const DEF = {num:'', track:STAYKI, rep:2, leaderMode:'p1best', leaderWhen:'new', sayPos:true, sayGap:false, sayPb:true, sayConn:true, voice:'nn:svetlana', rate:1, keep:2, board:false};
 const $ = s => document.querySelector(s);
 
 let cfg = {...DEF};
 try{ cfg = {...DEF, ...JSON.parse(localStorage.getItem(KEY) || '{}')}; }catch(e){}
 if(!cfg.voice) cfg.voice = DEF.voice;
+if(cfg.fx === 'robot'){ cfg.voice = 'nn:robot'; } delete cfg.fx;          // была отдельная настройка «Эффект»
 function saveCfg(){ try{ localStorage.setItem(KEY, JSON.stringify(cfg)); }catch(e){} }
 
 let running = false, laps = [], last = null;
@@ -348,7 +348,18 @@ function fmt(ms){
 }
 
 /* ---------- Голос ---------- */
-const NEURAL = {svetlana:'Светлана (нейроголос)', dmitry:'Дмитрий (нейроголос)'};
+// Голоса: clips — папка фрагментов в snd/ (генерирует make_clips.py), fx — обработка при воспроизведении
+const VOICES = {
+  svetlana: {name:'Светлана', clips:'svetlana'},
+  dmitry:   {name:'Дмитрий', clips:'dmitry'},
+  robot:    {name:'Робот — ИИ из фантастики', clips:'svetlana', fx:'robot'},
+  radio:    {name:'Гоночное радио — инженер', clips:'dmitry', fx:'radio'},
+  brian:    {name:'Брайан — американец', clips:'brian'},
+  giuseppe: {name:'Джузеппе — итальянец', clips:'giuseppe'},
+  remy:     {name:'Реми — француз', clips:'remy'},
+};
+const curVoice = () => cfg.voice.startsWith('nn:') ? VOICES[cfg.voice.slice(3)] : null;
+if(cfg.voice.startsWith('nn:') && !VOICES[cfg.voice.slice(3)]) cfg.voice = DEF.voice;
 
 const Clips = {                              // нейроголос: заранее скачанные фрагменты, склейка через WebAudio
   ctx:null, buf:{}, name:null, ready:false, until:0,
@@ -367,40 +378,79 @@ const Clips = {                              // нейроголос: заран
   play(seq){
     const c = this.audio(); if(c.state !== 'running') c.resume();
     const gap = 0.1 / +cfg.rate, stop = 0.45 / +cfg.rate;
-    let t = Math.max(c.currentTime + 0.05, this.until);
+    const fx = (curVoice() || {}).fx || '', start = Math.max(c.currentTime + (fx === 'radio' ? .2 : .05), this.until);
+    let t = start;
+    this.out();
     for(const k of seq){
       if(k === ','){ t += gap; continue; }
       if(k === '.'){ t += stop; continue; }
       const s = c.createBufferSource(); s.buffer = this.buf[k];         // скорость не трогаем — playbackRate меняет и высоту голоса
       s.connect(this.out()); s.start(t); t += this.buf[k].duration;
     }
+    if(this.fxFor === 'radio'){ radioClick(c, start - .12, 1); radioClick(c, t + .05, 0); t += .3; }
     this.until = t;
   },
   cancel(){ if(this.ctx){ this.ctx.suspend(); this.until = 0; } },
   fxFor:null, fxIn:null,
-  out(){                                     // вход цепочки эффектов для текущей настройки cfg.fx
-    const c = this.audio();
-    if(this.fxIn && this.fxFor === cfg.fx) return this.fxIn;
-    this.fxFor = cfg.fx;
-    if(cfg.fx !== 'robot') return this.fxIn = c.destination;
-    this.fxIn = robotChain(c, c.destination);
-    return this.fxIn;
+  out(){                                     // вход цепочки эффектов текущего голоса
+    const c = this.audio(), fx = (curVoice() || {}).fx || '';
+    if(this.fxIn && this.fxFor === fx) return this.fxIn;
+    this.fxFor = fx;
+    return this.fxIn = fx === 'robot' ? robotChain(c, c.destination) : fx === 'radio' ? radioChain(c, c.destination) : c.destination;
   }
 };
-// «Робот»: кольцевая модуляция даёт металлический призвук, гребенчатый фильтр — звон,
-// подъём верхов и компрессор — чёткость сквозь шум мотора. Обработка, а не чей-то голос.
+// «Робот» — вокодер: голос управляет 16 полосами «пилы» на одной ноте, поэтому интонация ровная и металлическая,
+// как у ИИ из фантастики. Немного исходного голоса оставлено для разборчивости цифр. Обработка, а не чей-то голос.
 function robotChain(c, dest){
-  const input = c.createGain(), dry = c.createGain(), ring = c.createGain(), osc = c.createOscillator(), mix = c.createGain();
-  dry.gain.value = .5; ring.gain.value = 0; osc.frequency.value = 55; osc.connect(ring.gain); osc.start();
-  input.connect(dry); input.connect(ring); dry.connect(mix); ring.connect(mix);
-  const delay = c.createDelay(.05), fb = c.createGain(), sum = c.createGain();
-  delay.delayTime.value = .009; fb.gain.value = .45; sum.gain.value = .75;
-  mix.connect(delay); delay.connect(fb); fb.connect(delay); mix.connect(sum); delay.connect(sum);
-  const hp = c.createBiquadFilter(), pk = c.createBiquadFilter(), comp = c.createDynamicsCompressor();
-  hp.type = 'highpass'; hp.frequency.value = 180;
-  pk.type = 'peaking'; pk.frequency.value = 2800; pk.gain.value = 5; pk.Q.value = 1;
-  sum.connect(hp); hp.connect(pk); pk.connect(comp); comp.connect(dest);
+  const input = c.createGain(), voc = c.createGain(), dry = c.createGain(), sum = c.createGain();
+  voc.gain.value = 7; dry.gain.value = .3;
+  const saw = c.createOscillator(); saw.type = 'sawtooth'; saw.frequency.value = 196; saw.start();
+  const saw2 = c.createOscillator(); saw2.type = 'sawtooth'; saw2.frequency.value = 393; saw2.start();   // октава выше — «стеклянный» призвук
+  const sawMix = c.createGain(); saw.connect(sawMix); const s2g = c.createGain(); s2g.gain.value = .35; saw2.connect(s2g); s2g.connect(sawMix);
+  const nb = c.createBuffer(1, c.sampleRate, c.sampleRate), nd = nb.getChannelData(0);
+  for(let i = 0; i < nd.length; i++) nd[i] = Math.random()*2 - 1;
+  const noise = c.createBufferSource(); noise.buffer = nb; noise.loop = true; noise.start();             // шипящие (с, ш, ч) — из шума
+  const rect = new Float32Array(1025); for(let i = 0; i < rect.length; i++) rect[i] = Math.abs(i/512 - 1);
+  for(const f of [140, 200, 270, 350, 450, 570, 720, 900, 1120, 1400, 1750, 2200, 2800, 3600, 4700, 6200]){
+    const m = c.createBiquadFilter(); m.type = 'bandpass'; m.frequency.value = f; m.Q.value = 5;
+    const r = c.createWaveShaper(); r.curve = rect;
+    const e = c.createBiquadFilter(); e.type = 'lowpass'; e.frequency.value = 35;
+    const k = c.createBiquadFilter(); k.type = 'bandpass'; k.frequency.value = f; k.Q.value = 5;
+    const v = c.createGain(); v.gain.value = 0;
+    input.connect(m); m.connect(r); r.connect(e); e.connect(v.gain);
+    (f >= 3000 ? noise : sawMix).connect(k); k.connect(v); v.connect(voc);
+  }
+  input.connect(dry);
+  const delay = c.createDelay(.05), fb = c.createGain(); delay.delayTime.value = .007; fb.gain.value = .35;   // лёгкий звон
+  voc.connect(sum); dry.connect(sum); sum.connect(delay); delay.connect(fb); fb.connect(delay);
+  const hp = c.createBiquadFilter(), comp = c.createDynamicsCompressor(), out = c.createGain();
+  hp.type = 'highpass'; hp.frequency.value = 160; out.gain.value = .7;
+  sum.connect(hp); delay.connect(hp); hp.connect(comp); comp.connect(out); out.connect(dest);
   return input;
+}
+// «Гоночное радио»: узкая полоса как у рации, лёгкий перегруз и щелчки в начале и конце фразы
+function radioChain(c, dest){
+  const input = c.createGain(), hp = c.createBiquadFilter(), lp = c.createBiquadFilter(), sh = c.createWaveShaper(), pk = c.createBiquadFilter(), out = c.createGain();
+  hp.type = 'highpass'; hp.frequency.value = 450; lp.type = 'lowpass'; lp.frequency.value = 3200;
+  pk.type = 'peaking'; pk.frequency.value = 1700; pk.gain.value = 6; pk.Q.value = 1.2;
+  const curve = new Float32Array(1025); for(let i = 0; i < curve.length; i++){ const x = i/512 - 1; curve[i] = Math.tanh(2.2*x) / Math.tanh(2.2); }
+  sh.curve = curve; out.gain.value = .65;
+  input.connect(hp); hp.connect(lp); lp.connect(pk); pk.connect(sh); sh.connect(out); out.connect(dest);
+  return input;
+}
+function radioClick(c, t, open){              // писк открытия канала / шипение закрытия
+  t = Math.max(t, c.currentTime);
+  if(open){
+    const o = c.createOscillator(), g = c.createGain(); o.frequency.value = 1250; g.gain.value = 0;
+    g.gain.setValueAtTime(0, t); g.gain.linearRampToValueAtTime(.12, t + .01); g.gain.setValueAtTime(.12, t + .07); g.gain.linearRampToValueAtTime(0, t + .09);
+    o.connect(g); g.connect(c.destination); o.start(t); o.stop(t + .1);
+  } else {
+    const n = c.createBuffer(1, Math.floor(c.sampleRate*.18), c.sampleRate), d = n.getChannelData(0);
+    for(let i = 0; i < d.length; i++) d[i] = (Math.random()*2 - 1) * (1 - i/d.length);
+    const s = c.createBufferSource(), bp = c.createBiquadFilter(), g = c.createGain();
+    s.buffer = n; bp.type = 'bandpass'; bp.frequency.value = 2500; bp.Q.value = .7; g.gain.value = .09;
+    s.connect(bp); bp.connect(g); g.connect(c.destination); s.start(t);
+  }
 }
 function trimSilence(b){                     // у mp3 от TTS тишина по краям — без неё фрагменты звучат слитно
   const d = b.getChannelData(0), th = 0.008, sr = b.sampleRate;
@@ -415,7 +465,7 @@ function trimSilence(b){                     // у mp3 от TTS тишина п�
 
 const Voice = {
   keep: [],                                  // ссылки на фразы: Chrome на Android иначе теряет их до озвучки
-  neural(){ return cfg.voice.startsWith('nn:') && Clips.ready && Clips.name === cfg.voice.slice(3); },
+  neural(){ const v = curVoice(); return !!v && Clips.ready && Clips.name === v.clips; },
   say(seq){
     if(this.neural()){ Clips.play(seq); return; }
     const lines = []; let txt = '';
@@ -439,13 +489,13 @@ const Voice = {
   cancel(){ Clips.cancel(); if('speechSynthesis' in window) speechSynthesis.cancel(); if(window.GolosApp) GolosApp.stopSpeak(); },
   fill(){
     const sel = $('#voice'), vs = 'speechSynthesis' in window ? speechSynthesis.getVoices().filter(v => /^ru/i.test(v.lang)) : [];
-    sel.innerHTML = Object.entries(NEURAL).map(([k, n]) => `<option value="nn:${k}">${n}</option>`).join('')
+    sel.innerHTML = Object.entries(VOICES).map(([k, v]) => `<option value="nn:${k}">${v.name}</option>`).join('')
       + (vs.length ? vs.map(v => `<option value="${esc(v.voiceURI)}">Система: ${esc(v.name)}</option>`).join('') : '<option value="">Системный голос телефона</option>');
     sel.value = cfg.voice;
     if(sel.value !== cfg.voice) sel.value = 'nn:svetlana';
   }
 };
-function loadVoice(){ if(cfg.voice.startsWith('nn:')) Clips.load(cfg.voice.slice(3)); }
+function loadVoice(){ const v = curVoice(); if(v) Clips.load(v.clips); }
 
 function announce(lap){
   const t = lapKeys(lap.lt), seq = [];
@@ -723,7 +773,7 @@ function ui(){
 const esc = s => String(s ?? '').replace(/[&<>"]/g, ch => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[ch]));
 
 function bind(){
-  const map = {rep:'rep', leaderMode:'leaderMode', leaderWhen:'leaderWhen', voice:'voice', fx:'fx', rate:'rate', keep:'keep', track:'track'};
+  const map = {rep:'rep', leaderMode:'leaderMode', leaderWhen:'leaderWhen', voice:'voice', rate:'rate', keep:'keep', track:'track'};
   for(const id in map){ const el = $('#' + id); el.value = cfg[map[id]]; el.onchange = () => { cfg[map[id]] = el.value; saveCfg(); if(id === 'keep' && running) Keep.start(); if(id === 'voice') loadVoice(); if(id === 'track' && running){ KC.close(); KC.comp = {}; KC.open(); } ui(); }; }
   for(const id of ['sayPos','sayGap','sayPb','sayConn']){ const el = $('#' + id); el.checked = cfg[id]; el.onchange = () => { cfg[id] = el.checked; saveCfg(); }; }
   const num = $('#num'); num.value = cfg.num;

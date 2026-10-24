@@ -6,7 +6,9 @@
 import asyncio, os
 import edge_tts
 
-VOICES = {'svetlana': 'ru-RU-SvetlanaNeural', 'dmitry': 'ru-RU-DmitryNeural'}
+VOICES = {'svetlana': 'ru-RU-SvetlanaNeural', 'dmitry': 'ru-RU-DmitryNeural',
+          # «мультиязычные» голоса Microsoft говорят по-русски со своим акцентом
+          'brian': 'en-US-BrianMultilingualNeural', 'giuseppe': 'it-IT-GiuseppeMultilingualNeural', 'remy': 'fr-FR-RemyMultilingualNeural'}
 RATE = '+5%'
 
 U = ['ноль','один','два','три','четыре','пять','шесть','семь','восемь','девять','десять','одиннадцать','двенадцать',
