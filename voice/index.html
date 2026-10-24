@@ -91,7 +91,7 @@ select{max-width:60%}
     <label><span>«Лучший» при личном рекорде</span><input type="checkbox" id="sayPb"></label>
     <label><span>Предупреждать о потере связи</span><input type="checkbox" id="sayConn"></label>
     <label><span>Голос</span><select id="voice"></select></label>
-    <label><span>Скорость речи</span><select id="rate"><option value="0.9">медленно</option><option value="1">обычно</option><option value="1.15">быстрее</option><option value="1.3">быстро</option></select></label>
+    <label><span>Темп (у нейроголоса — только паузы)</span><select id="rate"><option value="0.9">медленно</option><option value="1">обычно</option><option value="1.15">быстрее</option><option value="1.3">быстро</option></select></label>
   </div>
 
   <div class="card">
@@ -120,11 +120,12 @@ const F = {POS:1, NUM:3, NAME:4, BEST:6, LAST1:10, LAPS:13, TEAM:26, RACE_TIME:1
 const KC_WS = 'wss://kartchrono.com:9180';
 const STAYKI = 'da5ce291c3fbb8feb31d79bdee1a00b7';
 const KEY = 'lapvoice.v1';
-const DEF = {num:'', track:STAYKI, rep:2, leaderMode:'p1best', sayPos:true, sayPb:true, sayConn:true, voice:'', rate:1, keep:2};
+const DEF = {num:'', track:STAYKI, rep:2, leaderMode:'p1best', sayPos:true, sayPb:true, sayConn:true, voice:'nn:svetlana', rate:1, keep:2};
 const $ = s => document.querySelector(s);
 
 let cfg = {...DEF};
 try{ cfg = {...DEF, ...JSON.parse(localStorage.getItem(KEY) || '{}')}; }catch(e){}
+if(!cfg.voice) cfg.voice = DEF.voice;
 function saveCfg(){ try{ localStorage.setItem(KEY, JSON.stringify(cfg)); }catch(e){} }
 
 let running = false, laps = [], last = null;
@@ -138,10 +139,22 @@ function words(n, fem){
   if(n < 20) return u1(n);
   return T[Math.floor(n/10)] + (n % 10 ? ' ' + u1(n % 10) : '');
 }
-const pair = n => n < 10 ? 'ноль ' + U[n] : words(n);
-function lapWords(ms){                       // 64326 → «одна, ноль четыре, тридцать два» (сотые отбрасываются, как на табло)
+/* Фраза = список ключей фрагментов: n0..n99 числа, z0..z9 «ноль N», f1/f2 «одна/две», слова из PHR;
+   ',' — короткая пауза, '.' — конец фразы. Нейроголос склеивает mp3 из snd/<голос>/<ключ>.mp3
+   (генерирует make_clips.py), системный голос читает тот же текст. */
+const PHR = {leader:'Лидер:', pos:'Позиция', best:'Лучший!', youlead:'Ты лидер!', lost:'Нет связи с таймингом.',
+  back:'Связь с таймингом есть.', watch:'Слежу за картом', nolaps:'Кругов пока нет.', setnum:'Укажи номер карта.'};
+const CLIP_KEYS = [...Array(100).keys()].map(i => 'n' + i).concat([...Array(10).keys()].map(i => 'z' + i), ['f1','f2'], Object.keys(PHR));
+function keyText(k){
+  if(PHR[k]) return PHR[k];
+  if(k === 'f1') return 'одна'; if(k === 'f2') return 'две';
+  return k[0] === 'z' ? 'ноль ' + U[+k.slice(1)] : words(+k.slice(1));
+}
+const numKey = n => n >= 0 && n < 100 && n === Math.floor(n) ? 'n' + n : null;
+const pairKey = n => n < 10 ? 'z' + n : 'n' + n;
+function lapKeys(ms){                        // 64326 → «одна, ноль четыре, тридцать два» (тысячные отбрасываются, как на табло)
   const cs = Math.floor(ms/10), m = Math.floor(cs/6000), s = Math.floor(cs % 6000 / 100), h = cs % 100;
-  return (m ? words(m, true) + ', ' + pair(s) : words(s)) + ', ' + pair(h);
+  return (m ? [m === 1 ? 'f1' : m === 2 ? 'f2' : numKey(m) || 'n0', ',', pairKey(s)] : ['n' + s]).concat([',', pairKey(h)]);
 }
 function fmt(ms){
   if(!(ms > 0)) return '—';
@@ -150,39 +163,85 @@ function fmt(ms){
 }
 
 /* ---------- Голос ---------- */
+const NEURAL = {svetlana:'Светлана (нейроголос)', dmitry:'Дмитрий (нейроголос)'};
+
+const Clips = {                              // нейроголос: заранее скачанные фрагменты, склейка через WebAudio
+  ctx:null, buf:{}, name:null, ready:false, until:0,
+  audio(){ return this.ctx ||= new (window.AudioContext || window.webkitAudioContext)(); },
+  async load(name){
+    if(this.name === name) return;
+    this.name = name; this.ready = false; this.buf = {};
+    const ctx = this.audio(), buf = {};
+    await Promise.all(CLIP_KEYS.map(async k => {
+      try{ const r = await fetch(`snd/${name}/${k}.mp3`); if(r.ok) buf[k] = trimSilence(await ctx.decodeAudioData(await r.arrayBuffer())); }catch(e){}
+    }));
+    if(this.name !== name) return;
+    this.buf = buf; this.ready = CLIP_KEYS.every(k => buf[k]);
+    ui();
+  },
+  play(seq){
+    const c = this.audio(); if(c.state !== 'running') c.resume();
+    const gap = 0.1 / +cfg.rate, stop = 0.45 / +cfg.rate;
+    let t = Math.max(c.currentTime + 0.05, this.until);
+    for(const k of seq){
+      if(k === ','){ t += gap; continue; }
+      if(k === '.'){ t += stop; continue; }
+      const s = c.createBufferSource(); s.buffer = this.buf[k];         // скорость не трогаем — playbackRate меняет и высоту голоса
+      s.connect(c.destination); s.start(t); t += this.buf[k].duration;
+    }
+    this.until = t;
+  },
+  cancel(){ if(this.ctx){ this.ctx.suspend(); this.until = 0; } }
+};
+function trimSilence(b){                     // у mp3 от TTS тишина по краям — без неё фрагменты звучат слитно
+  const d = b.getChannelData(0), th = 0.008, sr = b.sampleRate;
+  let i = 0, j = d.length - 1;
+  while(i < j && Math.abs(d[i]) < th) i++;
+  while(j > i && Math.abs(d[j]) < th) j--;
+  i = Math.max(0, i - Math.floor(sr*0.015)); j = Math.min(d.length - 1, j + Math.floor(sr*0.03));
+  const o = new AudioBuffer({length: j - i + 1, numberOfChannels: b.numberOfChannels, sampleRate: sr});
+  for(let ch = 0; ch < b.numberOfChannels; ch++) o.copyToChannel(b.getChannelData(ch).subarray(i, j + 1), ch);
+  return o;
+}
+
 const Voice = {
   keep: [],                                  // ссылки на фразы: Chrome на Android иначе теряет их до озвучки
-  pick(){
-    const vs = speechSynthesis.getVoices().filter(v => /^ru/i.test(v.lang));
-    return vs.find(v => v.voiceURI === cfg.voice) || vs[0] || null;
-  },
-  say(parts){
+  neural(){ return cfg.voice.startsWith('nn:') && Clips.ready && Clips.name === cfg.voice.slice(3); },
+  say(seq){
+    if(this.neural()){ Clips.play(seq); return; }
     if(!('speechSynthesis' in window)) return;
-    const v = this.pick();
-    for(const p of parts){
-      const u = new SpeechSynthesisUtterance(p);
+    const vs = speechSynthesis.getVoices().filter(v => /^ru/i.test(v.lang)), v = vs.find(x => x.voiceURI === cfg.voice) || vs[0];
+    let txt = '';
+    const flush = () => {
+      if(!txt.trim()) return;
+      const u = new SpeechSynthesisUtterance(txt.trim());
       u.lang = 'ru-RU'; if(v) u.voice = v; u.rate = +cfg.rate; u.volume = 1;
       u.onend = u.onerror = () => { this.keep = this.keep.filter(x => x !== u); };
-      this.keep.push(u); speechSynthesis.speak(u);
-    }
+      this.keep.push(u); speechSynthesis.speak(u); txt = '';
+    };
+    for(const k of seq){ if(k === '.') flush(); else txt += k === ',' ? ', ' : (txt && !txt.endsWith(' ') ? ' ' : '') + keyText(k); }
+    flush();
     speechSynthesis.resume();
   },
+  cancel(){ Clips.cancel(); if('speechSynthesis' in window) speechSynthesis.cancel(); },
   fill(){
-    const sel = $('#voice'), vs = speechSynthesis.getVoices().filter(v => /^ru/i.test(v.lang));
-    sel.innerHTML = vs.length ? vs.map(v => `<option value="${v.voiceURI}">${v.name}</option>`).join('') : '<option value="">системный</option>';
-    if(vs.some(v => v.voiceURI === cfg.voice)) sel.value = cfg.voice;
+    const sel = $('#voice'), vs = 'speechSynthesis' in window ? speechSynthesis.getVoices().filter(v => /^ru/i.test(v.lang)) : [];
+    sel.innerHTML = Object.entries(NEURAL).map(([k, n]) => `<option value="nn:${k}">${n}</option>`).join('')
+      + (vs.length ? vs.map(v => `<option value="${esc(v.voiceURI)}">Система: ${esc(v.name)}</option>`).join('') : '<option value="">Системный голос телефона</option>');
+    sel.value = cfg.voice;
+    if(sel.value !== cfg.voice) sel.value = 'nn:svetlana';
   }
 };
-if('speechSynthesis' in window){ Voice.fill(); speechSynthesis.onvoiceschanged = () => Voice.fill(); }
+function loadVoice(){ if(cfg.voice.startsWith('nn:')) Clips.load(cfg.voice.slice(3)); }
 
 function announce(lap){
-  const t = lapWords(lap.lt), parts = [];
-  for(let i = 0; i < +cfg.rep; i++) parts.push(t + '.');
-  if(cfg.sayPb && lap.pb) parts.push('Лучший.');
-  if(cfg.sayPos && lap.pos > 0) parts.push('Позиция ' + words(lap.pos) + '.');
-  if(lap.me1 && cfg.leaderMode !== 'off' && cfg.leaderMode !== 'best') parts.push('Ты лидер.');
-  else if(lap.leader > 0) parts.push('Лидер: ' + lapWords(lap.leader) + '.');
-  Voice.say(parts);
+  const t = lapKeys(lap.lt), seq = [];
+  for(let i = 0; i < +cfg.rep; i++) seq.push(...t, '.');
+  if(cfg.sayPb && lap.pb) seq.push('best', '.');
+  if(cfg.sayPos && numKey(lap.pos) && lap.pos > 0) seq.push('pos', numKey(lap.pos), '.');
+  if(lap.me1 && cfg.leaderMode !== 'off' && cfg.leaderMode !== 'best') seq.push('youlead', '.');
+  else if(lap.leader > 0) seq.push('leader', ',', ...lapKeys(lap.leader), '.');
+  Voice.say(seq);
 }
 
 /* ---------- Фоновый звук + Media Session: страница не засыпает при выключенном экране ---------- */
@@ -222,21 +281,31 @@ document.addEventListener('visibilitychange', () => { if(document.visibilityStat
 
 /* ---------- Kart Chrono ---------- */
 const KC = {
+  // status: off — не подключались/нет сети, wait — подключаемся, idle — сервер отвечает, но заезда нет, on — идут данные
   ws:null, status:'off', comp:{}, primed:false, run:'', raceName:'', runName:'', flag:null, lostAt:0, saidLost:false, timer:{},
   open(){
     if(this.ws && this.ws.readyState <= 1) return;
     let ws; try{ ws = new WebSocket(KC_WS); }catch(e){ return; }
-    this.ws = ws; this.status = 'wait'; ui();
-    ws.onopen = () => { ws.send(JSON.stringify({trackId: cfg.track || STAYKI})); this.status = 'open'; ui();
-      if(this.saidLost && cfg.sayConn) Voice.say(['Связь с таймингом есть.']); this.saidLost = false; this.lostAt = 0; };
-    ws.onmessage = e => { if(typeof e.data === 'string'){ let m; try{ m = JSON.parse(e.data); }catch(x){ return; } this.json(m); } };
+    let opened = false, got = false;
+    this.ws = ws; if(this.status === 'off') this.status = 'wait'; ui();
+    ws.onopen = () => {
+      opened = true; ws.send(JSON.stringify({trackId: cfg.track || STAYKI}));
+      if(this.saidLost && cfg.sayConn) Voice.say(['back', '.']);
+      this.saidLost = false; this.lostAt = 0;
+    };
+    ws.onmessage = e => { got = true; if(typeof e.data === 'string'){ let m; try{ m = JSON.parse(e.data); }catch(x){ return; } this.json(m); } };
     ws.onclose = () => {
       if(this.ws === ws) this.ws = null;
-      this.status = 'off'; ui();
-      if(!running) return;
-      if(!this.lostAt) this.lostAt = Date.now();
-      if(cfg.sayConn && !this.saidLost && Date.now() - this.lostAt > 15000){ this.saidLost = true; Voice.say(['Нет связи с таймингом.']); }
-      setTimeout(() => { if(running) this.open(); }, 3000);
+      if(!running){ this.status = 'off'; ui(); return; }
+      // Kart Chrono сразу закрывает соединение, если на треке нет активного заезда: это не обрыв связи
+      if(opened && !got){ this.status = 'idle'; ui(); setTimeout(() => { if(running) this.open(); }, 10000); return; }
+      if(!opened){                           // сервер недоступен: нет интернета или упал тайминг
+        this.status = 'off';
+        if(!this.lostAt) this.lostAt = Date.now();
+        if(cfg.sayConn && !this.saidLost && Date.now() - this.lostAt > 20000){ this.saidLost = true; Voice.say(['lost', '.']); }
+      } else this.status = 'wait';           // данные шли и оборвались — переподключаемся сразу
+      ui();
+      setTimeout(() => { if(running) this.open(); }, opened ? 1000 : 4000);
     };
     ws.onerror = () => {};
   },
@@ -279,7 +348,7 @@ function pushLap(lap){
   last = lap; laps.unshift(lap); if(laps.length > 60) laps.pop();
   announce(lap); Keep.meta(); ui();
 }
-function repeatLast(){ if(last) announce(last); else Voice.say(['Кругов пока нет.']); }
+function repeatLast(){ if(last) announce(last); else Voice.say(['nolaps', '.']); }
 
 /* ---------- Тест: фейковые круги ---------- */
 const Test = {
@@ -301,14 +370,15 @@ const Test = {
 function start(){
   running = true;
   Keep.start();                       // в обработчике нажатия — иначе браузер не даст играть звук
-  Voice.say([cfg.num ? 'Слежу за картом ' + words(+cfg.num || 0) + '.' : 'Укажи номер карта.']);
+  Clips.audio().resume();             // AudioContext оживает только по нажатию
+  Voice.say(!cfg.num ? ['setnum', '.'] : ['watch', numKey(+cfg.num), '.'].filter(Boolean));
   KC.open(); lockScreenOn(); ui();
 }
 function stop(){
   running = false; KC.close(); Keep.stop();
   if(Test.t){ clearInterval(Test.t); Test.t = null; }
   try{ wake && wake.release(); }catch(e){} wake = null;
-  if('speechSynthesis' in window) speechSynthesis.cancel();
+  Voice.cancel();
   ui();
 }
 
@@ -318,7 +388,7 @@ function ui(){
   $('#dot').className = 'dot ' + (st === 'on' ? 'on' : st === 'off' ? '' : 'wait');
   $('#run').textContent = Test.t ? 'тест: фейковые круги' : !running ? 'остановлено' :
     KC.status === 'on' ? (KC.run || 'тайминг на связи') + (KC.flag === 3 ? ' · финиш' : '') :
-    KC.status === 'open' ? 'подключено, активного заезда нет' : KC.status === 'wait' ? 'подключаюсь…' : 'нет связи, переподключаюсь…';
+    KC.status === 'idle' ? 'тайминг на связи, активного заезда нет' : KC.status === 'wait' ? 'подключаюсь…' : 'нет связи, переподключаюсь…';
   $('#go').textContent = running ? '■ СТОП' : '▶ СТАРТ';
   $('#go').className = 'go' + (running ? ' stop' : '');
   $('#test').textContent = Test.t ? '■ Остановить тест' : '🧪 Тест в кармане: фейковый круг каждые 20 с';
@@ -331,7 +401,8 @@ function ui(){
   $('#laps').textContent = (me ? me[F.LAPS] : last && last.n) ?? '—';
   $('#leaderLbl').textContent = {p1best:'Лидер, лучший', p1last:'Лидер, последний', best:'Лучший заезда', off:'Лидер'}[cfg.leaderMode];
   $('#leader').textContent = last && last.me1 ? 'ты лидер' : fmt(last && last.leader);
-  $('#bgHint').innerHTML = running && +cfg.keep === 0 ? '<span class="warn">Фоновый звук выключен — при выключенном экране браузер может заснуть.</span>' : '';
+  $('#bgHint').innerHTML = cfg.voice.startsWith('nn:') && !Voice.neural() ? '<span class="warn">Загружаю нейроголос… пока говорит системный голос.</span>'
+    : running && +cfg.keep === 0 ? '<span class="warn">Фоновый звук выключен — при выключенном экране браузер может заснуть.</span>' : '';
   const chips = Object.values(KC.comp).filter(c => c[F.NUM] != null && c[F.NUM] !== '')
     .sort((a, b) => (a[F.POS] || 99) - (b[F.POS] || 99));
   $('#chips').innerHTML = chips.length
@@ -345,17 +416,18 @@ const esc = s => String(s ?? '').replace(/[&<>"]/g, ch => ({'&':'&amp;','<':'&lt
 
 function bind(){
   const map = {rep:'rep', leaderMode:'leaderMode', voice:'voice', rate:'rate', keep:'keep', track:'track'};
-  for(const id in map){ const el = $('#' + id); el.value = cfg[map[id]]; el.onchange = () => { cfg[map[id]] = el.value; saveCfg(); if(id === 'keep' && running) Keep.start(); if(id === 'track' && running){ KC.close(); KC.comp = {}; KC.open(); } ui(); }; }
+  for(const id in map){ const el = $('#' + id); el.value = cfg[map[id]]; el.onchange = () => { cfg[map[id]] = el.value; saveCfg(); if(id === 'keep' && running) Keep.start(); if(id === 'voice') loadVoice(); if(id === 'track' && running){ KC.close(); KC.comp = {}; KC.open(); } ui(); }; }
   for(const id of ['sayPos','sayPb','sayConn']){ const el = $('#' + id); el.checked = cfg[id]; el.onchange = () => { cfg[id] = el.checked; saveCfg(); }; }
   const num = $('#num'); num.value = cfg.num;
   num.oninput = () => { cfg.num = num.value.trim(); saveCfg(); last = null; ui(); };
   $('#chips').onclick = e => { const b = e.target.closest('[data-n]'); if(!b) return; cfg.num = b.dataset.n; num.value = cfg.num; saveCfg(); last = null; ui(); };
   $('#go').onclick = () => running ? stop() : start();
   $('#again').onclick = repeatLast;
-  $('#testV').onclick = () => Voice.say([lapWords(64326) + '.', 'Лидер: ' + lapWords(63412) + '.']);
+  $('#testV').onclick = () => { Clips.audio().resume(); Voice.say([...lapKeys(64326), '.', 'leader', ',', ...lapKeys(63412), '.']); };
   $('#test').onclick = () => Test.toggle();
   $('#stayki').onclick = () => { cfg.track = STAYKI; $('#track').value = STAYKI; saveCfg(); if(running){ KC.close(); KC.comp = {}; KC.open(); } };
 }
-bind(); ui();
+Voice.fill(); if('speechSynthesis' in window) speechSynthesis.onvoiceschanged = () => Voice.fill();
+loadVoice(); bind(); ui();
 setInterval(() => { const d = new Date(); $('#clock').textContent = d.toTimeString().slice(0,8); }, 1000);
 </script>
