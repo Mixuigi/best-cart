@@ -58,6 +58,11 @@ select{max-width:60%}
 .laps .pb{color:var(--ok)}
 .warn{color:var(--acc)}
 .pocketBtn{width:100%}
+#trackQ{width:100%;font-size:17px}
+.tlist{display:flex;flex-direction:column;gap:6px}
+.tlist button{text-align:left;min-height:48px;display:flex;flex-direction:column;justify-content:center;padding:6px 12px;gap:1px}
+.tlist button small{color:var(--dim);font-size:13px}
+.tlist button.sel{border-color:var(--acc)}
 .boardWrap{overflow-x:auto;margin:0 -8px}
 .board{width:100%;border-collapse:collapse;font:500 14px 'Roboto Mono',ui-monospace,monospace}
 .board th{font:700 12px 'Roboto Condensed',sans-serif;text-transform:uppercase;letter-spacing:.04em;color:var(--dim);text-align:right;padding:4px 3px 8px;border-bottom:1px solid var(--line)}
@@ -155,9 +160,11 @@ select{max-width:60%}
 
   <div class="card">
     <h2>Тайминг</h2>
-    <label><span>Трасса</span><select id="trackSel"></select></label>
+    <label><span>Трасса</span><b id="trackCur" style="text-align:right"></b></label>
+    <input id="trackQ" type="search" placeholder="Поиск: название, город…" autocomplete="off" autocapitalize="off" spellcheck="false">
+    <div class="tlist" id="tlist"></div>
     <label id="trackRow"><span>trackId</span><input id="track" style="width:60%" autocomplete="off"></label>
-    <p class="hint">Любая трасса на Kart Chrono: онлайн-табло вида <b>название.kartchrono.com/online</b>. Своя — «Другая (trackId вручную)», trackId есть в исходнике той страницы.</p>
+    <p class="hint">Любая трасса на Kart Chrono: онлайн-табло вида <b>название.kartchrono.com/online</b>. Нет в списке — набери что угодно и выбери «Другая трасса»: trackId есть в исходнике той страницы.</p>
   </div>
 </div>
 
@@ -167,64 +174,126 @@ select{max-width:60%}
 const F = {POS:1, NUM:3, NAME:4, BEST:6, LAST1:10, LAPS:13, DIFF:14, TEAM:26, RACE_TIME:100, TIME_TO_GO:101, TOTAL_LAPS:102, LAPS_TO_GO:103, RUN_NAME:104, RACE_NAME:105, FLAG:106, FINISH_TYPE:108, RUN_GUID:111};
 const KC_WS = 'wss://kartchrono.com:9180';
 const STAYKI = 'da5ce291c3fbb8feb31d79bdee1a00b7';
-const TRACKS = [   // трассы с live-таймингом Kart Chrono (kartchrono.com/tracks.php), trackId — из их страниц /online/
-  ["da5ce291c3fbb8feb31d79bdee1a00b7", "Стайки (Smart Racing)", "Минск"],
-  ["4e07c10f5f80f79a300047bdfde3960c", "\"Догони\" картинг", "Симферополь"],
-  ["6f301a527b9aec2aaf39f4102061191d", "ADM Karting", "Московская обл."],
-  ["375d415c34caf8a57fcc95e08bd8f195", "Adrenalin", "Кемерово"],
-  ["1779469276f42c09b80d6c5d43066b2f", "DIXXODROM", "Москва"],
-  ["3a17f3719fe7b92b03268518852f05ec", "DIXXODROM — детские соревнования", "Москва"],
-  ["7be7fb768f5f2f7e2d99f2610fc5ed4e", "DRM-Karting", "Сириус"],
-  ["a9471000f243cb6e8bd4228cca4838b0", "Elit Cart F1", "Дагестанские Огни"],
-  ["7f00c7c92514ceef81c24ac242c4bf09", "F1-Картинг Веснянка", "Минск"],
-  ["7e16647b6ebce926d6e1260393ea3ab5", "Fast Track Karting", "Санкт-Петербург"],
-  ["94a7286b1305c4f625df2c53fc4df57b", "Formula 07 Нальчик", "Нальчик"],
-  ["abcaf65f8570e7e7bd6310f614c8b6e2", "GS", "Московская обл."],
-  ["6ef84c796679a5a2830a1233b9b772e6", "ICE KARTING", "Пермь"],
-  ["d9622731b15cceb81ba98989028851c5", "Kart Start", "Екатеринбург"],
-  ["b384601d372613f29ef22b42d13bc9cf", "Kart Start электро-картинг", "Екатеринбург"],
-  ["62fe9b5f270da625f59729db895d9263", "KartFreedom", "Одесса"],
-  ["1f3e81fc98c56b12aaeed4a1a4eb91cb", "Kartingu Halle Jekabpils", "Екабпилс, Латвия"],
-  ["28a3a950cd718f9d2a6b5003ad9b7bcd", "Lemar", "Ростов-на-Дону"],
-  ["4ed1c89a452cbf6c0518951ebfdfef41", "LIBERTY karting", ""],
-  ["6eceed6a3ee5a29d361baa5c5f9ca42b", "Lisilemans", "Тбилиси"],
-  ["c9c74b65e51b52c0cc430089355422b2", "Live Drive СитиМолл", "Тюмень"],
-  ["c142ead2cd265256fffb972989c26475", "Monza Karting", "Беларусь"],
-  ["e248f162dc6575005b6c9f61a2c00da0", "MY76CAMP", "Санкт-Петербург"],
-  ["8fd418967a2cb7065ef43d34b55b53c8", "NiTRO KARTiNG", "Екатеринбург"],
-  ["9e12850fc39f085d938c69d42e6baa13", "NiTRO KARTiNG Мега", "Екатеринбург"],
-  ["271262534a9c0f37074bc89148e12936", "Plastunkaring", "Сочи"],
-  ["bae2c5f16e0766802ac17fc7bb4c3787", "Practika", ""],
-  ["5c359167db567c9c50c249b27d675ffa", "PrimRing Sport", "Артём"],
-  ["ae906a612b0c9465af727e21438bb823", "RUMOS RACING", "Тверь"],
-  ["4083a09821c255307571491e30f721a7", "S1Kart", "Беларусь"],
-  ["c9d7627151e7be308267df89d01fe22a", "SILA", "Красноярск"],
-  ["627e0d3ccfefd3d0ae84d4339f7df58a", "Turba Karting Hall", "Екатеринбург"],
-  ["1be7c705756460233793ff919946bf5d", "Turba karting hall (крытая)", "Екатеринбург"],
-  ["6b136b007aa67c7ec3bcde5de0378118", "X-Ti Лидер", "Московская обл."],
-  ["6e8bd69cb15cf53c97c641c15ffd9ade", "X-Ti Пилот", "Москва"],
-  ["ebf3c31d6331ba03b56d7866d586145d", "АСК «Трасса 74»", "Челябинск"],
-  ["fa1e0564f0d13cbc6313cc57169be184", "Берёза-Карт", "Берёзовский"],
-  ["24402f3e08728650f186bfd6a2447ade", "Большой Приз", "Санкт-Петербург"],
-  ["2109229b622d90608882c752782d56b2", "Гедуко картинг", "Кишпек"],
-  ["51bb9efe0410ddcc919304062f9972ea", "Картинг на автодроме", "Сириус"],
-  ["496ad8828a87ecea4e5d828a1378abe5", "Картинг Родео Драйв", "Санкт-Петербург"],
-  ["8a8b645dac95f1830a2d213178e2178a", "Картинг Центр Благовещенск", "Благовещенск"],
-  ["f281f3a7af85bfe6140e0f0becab5d14", "Картинг-Холл", "Орёл"],
-  ["9414a4f2e041f45ec21a5c4a85a7db68", "Картинг-центр LEVEL", "Липецк"],
-  ["6491ed9016a498ac61bd7b6f07069830", "Картинг-центр SEVEN", "Саратов"],
-  ["0a7e400059d7cea2bc8504c3788753c0", "Маяк", "Московская обл."],
-  ["e4bf5f3bb52174813791eb324bead9cc", "Маяк 2.0", "Московская обл."],
-  ["507ddcde9077ba740cf9f5c8401d6666", "ОКарт", "Московская обл."],
-  ["971bcbe6ea25d2b081bfbd870192c86f", "Приморское кольцо", "Артем"],
-  ["f393ad5d3e4eb9d04638863920b14bb4", "Сафари Картинг", "Архангельск"],
-  ["51a0ce74c8690969d43925106c97d0da", "СТК", "Ярославль"],
-  ["7f04c9ce6d10390aa1033811698ec7fa", "Трасса 66, ТРЦ Радуга Парк", "Екатеринбург"],
-  ["a4f2a04e6727bb1d2779ba7f3b33adef", "Форсаж - Ярославль", "Ярославль"],
-  ["c032bcc2e03cc2a2495e05c987b7485c", "Форсаж24", "Красноярск"],
-  ["901dcc4c39a59a1654a51e400afbe880", "Шикана Картинг", "Москва"],
+const TRACKS = [   // [trackId, название, город, поддомен] — трассы с live-таймингом Kart Chrono (kartchrono.com/tracks.php)
+  ["da5ce291c3fbb8feb31d79bdee1a00b7", "Стайки (Smart Racing)", "Минск", "stayki"],
+  ["4e07c10f5f80f79a300047bdfde3960c", "\"Догони\" картинг", "Симферополь", "dogoni"],
+  ["6f301a527b9aec2aaf39f4102061191d", "ADM Karting", "Московская обл.", "admkarting"],
+  ["375d415c34caf8a57fcc95e08bd8f195", "Adrenalin", "Кемерово", "adrenalin"],
+  ["1779469276f42c09b80d6c5d43066b2f", "DIXXODROM", "Москва", "dixxodrom"],
+  ["3a17f3719fe7b92b03268518852f05ec", "DIXXODROM — детские соревнования", "Москва", "dixxodrom2"],
+  ["7be7fb768f5f2f7e2d99f2610fc5ed4e", "DRM-Karting", "Сириус", "sochidrm2"],
+  ["a9471000f243cb6e8bd4228cca4838b0", "Elit Cart F1", "Дагестанские Огни", "elitelights"],
+  ["7f00c7c92514ceef81c24ac242c4bf09", "F1-Картинг Веснянка", "Минск", "f1karting-v"],
+  ["7e16647b6ebce926d6e1260393ea3ab5", "Fast Track Karting", "Санкт-Петербург", "fasttrack"],
+  ["94a7286b1305c4f625df2c53fc4df57b", "Formula 07 Нальчик", "Нальчик", "formula07"],
+  ["abcaf65f8570e7e7bd6310f614c8b6e2", "GS", "Московская обл.", "gsracing"],
+  ["6ef84c796679a5a2830a1233b9b772e6", "ICE KARTING", "Пермь", "icekarting"],
+  ["d9622731b15cceb81ba98989028851c5", "Kart Start", "Екатеринбург", "kartstart"],
+  ["b384601d372613f29ef22b42d13bc9cf", "Kart Start электро-картинг", "Екатеринбург", "kartstartelectro"],
+  ["62fe9b5f270da625f59729db895d9263", "KartFreedom", "Одесса", "kartfreedom"],
+  ["1f3e81fc98c56b12aaeed4a1a4eb91cb", "Kartingu Halle Jekabpils", "Екабпилс, Латвия", "jekabpils"],
+  ["28a3a950cd718f9d2a6b5003ad9b7bcd", "Lemar", "Ростов-на-Дону", "lemar"],
+  ["4ed1c89a452cbf6c0518951ebfdfef41", "LIBERTY karting", "", "liberty"],
+  ["6eceed6a3ee5a29d361baa5c5f9ca42b", "Lisilemans", "Тбилиси", "lisilemans"],
+  ["c9c74b65e51b52c0cc430089355422b2", "Live Drive СитиМолл", "Тюмень", "livedrive"],
+  ["c142ead2cd265256fffb972989c26475", "Monza Karting", "Беларусь", "monza-karting"],
+  ["e248f162dc6575005b6c9f61a2c00da0", "MY76CAMP", "Санкт-Петербург", "my76camp"],
+  ["8fd418967a2cb7065ef43d34b55b53c8", "NiTRO KARTiNG", "Екатеринбург", "nitro"],
+  ["9e12850fc39f085d938c69d42e6baa13", "NiTRO KARTiNG Мега", "Екатеринбург", "nitro-mega"],
+  ["271262534a9c0f37074bc89148e12936", "Plastunkaring", "Сочи", "plastunka"],
+  ["bae2c5f16e0766802ac17fc7bb4c3787", "Practika", "", "practika"],
+  ["5c359167db567c9c50c249b27d675ffa", "PrimRing Sport", "Артём", "primringsport"],
+  ["ae906a612b0c9465af727e21438bb823", "RUMOS RACING", "Тверь", "rumos"],
+  ["4083a09821c255307571491e30f721a7", "S1Kart", "Беларусь", "s1kart"],
+  ["c9d7627151e7be308267df89d01fe22a", "SILA", "Красноярск", "sila"],
+  ["627e0d3ccfefd3d0ae84d4339f7df58a", "Turba Karting Hall", "Екатеринбург", "turbakarting"],
+  ["1be7c705756460233793ff919946bf5d", "Turba karting hall (крытая)", "Екатеринбург", "turbakarting2"],
+  ["6b136b007aa67c7ec3bcde5de0378118", "X-Ti Лидер", "Московская обл.", "x-ti-leader"],
+  ["6e8bd69cb15cf53c97c641c15ffd9ade", "X-Ti Пилот", "Москва", "x-tipilot"],
+  ["ebf3c31d6331ba03b56d7866d586145d", "АСК «Трасса 74»", "Челябинск", "track74"],
+  ["fa1e0564f0d13cbc6313cc57169be184", "Берёза-Карт", "Берёзовский", "bereza-kart"],
+  ["24402f3e08728650f186bfd6a2447ade", "Большой Приз", "Санкт-Петербург", "grandprix"],
+  ["2109229b622d90608882c752782d56b2", "Гедуко картинг", "Кишпек", "geduko"],
+  ["51bb9efe0410ddcc919304062f9972ea", "Картинг на автодроме", "Сириус", "sochidrm"],
+  ["496ad8828a87ecea4e5d828a1378abe5", "Картинг Родео Драйв", "Санкт-Петербург", "rodeodrive"],
+  ["8a8b645dac95f1830a2d213178e2178a", "Картинг Центр Благовещенск", "Благовещенск", "kartingbv"],
+  ["f281f3a7af85bfe6140e0f0becab5d14", "Картинг-Холл", "Орёл", "kartinghall"],
+  ["9414a4f2e041f45ec21a5c4a85a7db68", "Картинг-центр LEVEL", "Липецк", "level"],
+  ["6491ed9016a498ac61bd7b6f07069830", "Картинг-центр SEVEN", "Саратов", "seven"],
+  ["0a7e400059d7cea2bc8504c3788753c0", "Маяк", "Московская обл.", "mayak"],
+  ["e4bf5f3bb52174813791eb324bead9cc", "Маяк 2.0", "Московская обл.", "mayak2"],
+  ["507ddcde9077ba740cf9f5c8401d6666", "ОКарт", "Московская обл.", "okart"],
+  ["971bcbe6ea25d2b081bfbd870192c86f", "Приморское кольцо", "Артем", "primring"],
+  ["f393ad5d3e4eb9d04638863920b14bb4", "Сафари Картинг", "Архангельск", "safari"],
+  ["51a0ce74c8690969d43925106c97d0da", "СТК", "Ярославль", "stkmotor"],
+  ["7f04c9ce6d10390aa1033811698ec7fa", "Трасса 66, ТРЦ Радуга Парк", "Екатеринбург", "trassa66"],
+  ["a4f2a04e6727bb1d2779ba7f3b33adef", "Форсаж - Ярославль", "Ярославль", "forsage-y"],
+  ["c032bcc2e03cc2a2495e05c987b7485c", "Форсаж24", "Красноярск", "forsage24"],
+  ["901dcc4c39a59a1654a51e400afbe880", "Шикана Картинг", "Москва", "shikana"],
 ];
 const trackName = id => (TRACKS.find(t => t[0] === id) || [, ''])[1];
+
+/* Терпимый поиск трассы: регистр, ё/е, кавычки, латиница↔кириллица («stayki» = «стайки»),
+   не та раскладка («cnfqrb» = «стайки»), опечатки (до 1–2 букв), сокращения городов. */
+const LAYOUT = {q:'й',w:'ц',e:'у',r:'к',t:'е',y:'н',u:'г',i:'ш',o:'щ',p:'з','[':'х',']':'ъ',a:'ф',s:'ы',d:'в',f:'а',g:'п',h:'р',j:'о',k:'л',l:'д',';':'ж',"'":'э',z:'я',x:'ч',c:'с',v:'м',b:'и',n:'т',m:'ь',',':'б','.':'ю','`':'ё'};
+const LAYOUT_BACK = Object.fromEntries(Object.entries(LAYOUT).map(([a, b]) => [b, a]));
+const TR = {а:'a',б:'b',в:'v',г:'g',д:'d',е:'e',ё:'e',ж:'zh',з:'z',и:'i',й:'y',к:'k',л:'l',м:'m',н:'n',о:'o',п:'p',р:'r',с:'s',т:'t',у:'u',ф:'f',х:'h',ц:'ts',ч:'ch',ш:'sh',щ:'sch',ъ:'',ы:'y',ь:'',э:'e',ю:'yu',я:'ya'};
+const ALIAS = {'санкт-петербург':'питер спб петербург','москва':'мск','московская обл.':'подмосковье мо мск москва','екатеринбург':'екб','минск':'беларусь','беларусь':'минск','сириус':'сочи'};
+function skey(s){                           // всё в латиницу, без мусора, с упрощением похожих звуков
+  s = String(s).toLowerCase().replace(/ё/g, 'е');
+  s = [...s].map(ch => TR[ch] ?? ch).join('');
+  return s.replace(/[^a-z0-9]+/g, ' ').replace(/kh/g, 'h').replace(/ph/g, 'f').replace(/w/g, 'v').replace(/x/g, 'ks')
+    .replace(/ck/g, 'k').replace(/(.)\1+/g, '$1').trim();
+}
+function lev(a, b){                         // расстояние Дамерау–Левенштейна
+  const d = Array.from({length: a.length + 1}, (_, i) => [i]);
+  for(let j = 1; j <= b.length; j++) d[0][j] = j;
+  for(let i = 1; i <= a.length; i++) for(let j = 1; j <= b.length; j++)
+    d[i][j] = Math.min(d[i-1][j] + 1, d[i][j-1] + 1, d[i-1][j-1] + (a[i-1] === b[j-1] ? 0 : 1),
+      i > 1 && j > 1 && a[i-1] === b[j-2] && a[i-2] === b[j-1] ? d[i-2][j-2] + 1 : Infinity);
+  return d[a.length][b.length];
+}
+// как латинские названия произносят по-русски — чтобы находилось и так
+const TRACK_ALIAS = {icekarting:'айс', 'x-tipilot':'икс ти xti', 'x-ti-leader':'икс ти xti', 'f1karting-v':'ф1 формула', livedrive:'лайв драйв',
+  fasttrack:'фаст трек', kartstart:'карт старт', kartstartelectro:'карт старт', kartfreedom:'карт фридом', lemar:'лемар', rumos:'румос',
+  s1kart:'с1 эс1', seven:'севен', sila:'сила', turbakarting:'турба', turbakarting2:'турба', adrenalin:'адреналин', admkarting:'адм',
+  elitelights:'элит', dixxodrom:'диксодром', dixxodrom2:'диксодром', lisilemans:'лисилеманс', my76camp:'май кэмп', gsracing:'джи эс гс',
+  practika:'практика', plastunka:'пластунка', primring:'примринг', primringsport:'примринг', sochidrm:'дрм', sochidrm2:'дрм', 'monza-karting':'монза',
+  liberty:'либерти', jekabpils:'екабпилс', nitro:'нитро', 'nitro-mega':'нитро', stayki:'смарт рейсинг'};
+const TRACK_KEYS = TRACKS.map(([id, n, c, sub]) => ({name: skey(n), all: skey([n, c, sub, ALIAS[c.toLowerCase()] || '', TRACK_ALIAS[sub] || ''].join(' '))}));
+function tokenScore(t, words){              // 0..1: насколько слово запроса похоже на какое-то слово трассы
+  let best = 0;
+  for(const w of words){
+    if(w.startsWith(t)) return 1;
+    if(w.includes(t) && t.length >= 3){ best = Math.max(best, .85); continue; }
+    const allow = t.length <= 3 ? 0 : t.length <= 5 ? 1 : 2;
+    const d = Math.min(lev(t, w.slice(0, t.length)), lev(t, w.slice(0, t.length + 1)), lev(t, w));
+    if(d <= allow) best = Math.max(best, .8 - d * .15);
+  }
+  return best;
+}
+function searchTracks(query){
+  const low = query.toLowerCase();
+  // запрос как есть — с опечатками; в другой раскладке — только точное вхождение, иначе мусорный ввод находит всё подряд
+  const main = skey(query), swapped = [[...low].map(ch => LAYOUT[ch] ?? ch).join(''), [...low].map(ch => LAYOUT_BACK[ch] ?? ch).join('')].map(skey).filter(v => v && v !== main);
+  const variants = [[main, true], ...swapped.map(v => [v, false])].filter(([v]) => v);
+  const res = [];
+  TRACKS.forEach((t, i) => {
+    const k = TRACK_KEYS[i], words = k.all.split(' ');
+    let score = 0;
+    for(const [v, fuzzy] of variants){
+      let sc;
+      if(v.length < 3) sc = k.name.startsWith(v) ? 4 : words.some(w => w.startsWith(v)) ? 2.5 : 0;   // 1–2 буквы — только начало слова
+      else if(k.name.includes(v)) sc = 3 + (k.name.startsWith(v) ? 1 : 0);
+      else if(k.all.includes(v)) sc = 2.5;
+      else if(!fuzzy) sc = 0;
+      else { const ts = v.split(' ').map(x => tokenScore(x, words)); sc = ts.every(x => x > 0) ? ts.reduce((a, b) => a + b, 0) / ts.length * 2 : 0; }
+      score = Math.max(score, sc);
+    }
+    if(score > 0) res.push([score, i]);
+  });
+  return res.sort((a, b) => b[0] - a[0] || a[1] - b[1]).map(([, i]) => TRACKS[i]);
+}
 const KEY = 'lapvoice.v1';
 const DEF = {num:'', track:STAYKI, rep:2, leaderMode:'p1best', leaderWhen:'new', sayPos:true, sayGap:false, sayPb:true, sayConn:true, voice:'nn:svetlana', rate:1, keep:2, board:false};
 const $ = s => document.querySelector(s);
@@ -642,17 +711,25 @@ function bind(){
   $('#boardBtn').onclick = () => { cfg.board = !cfg.board; saveCfg(); $('#board').hidden = !cfg.board; ui(); };
   $('#testV').onclick = () => { Clips.audio().resume(); Voice.say([...lapKeys(64326), '.', 'leader', ',', ...lapKeys(63412), '.']); };
   $('#test').onclick = () => Test.toggle();
-  const sel = $('#trackSel'), known = () => TRACKS.some(t => t[0] === cfg.track);
-  sel.innerHTML = TRACKS.map(([id, n, c]) => `<option value="${id}">${esc(n)}${c ? ' — ' + esc(c) : ''}</option>`).join('') + '<option value="custom">Другая (trackId вручную)</option>';
-  sel.value = known() ? cfg.track : 'custom';
-  $('#trackRow').hidden = known();
-  sel.onchange = () => {
-    $('#trackRow').hidden = sel.value !== 'custom';
-    if(sel.value === 'custom'){ $('#track').focus(); return; }
-    cfg.track = sel.value; $('#track').value = cfg.track; saveCfg();
+  const q = $('#trackQ'), list = $('#tlist');
+  const showCur = () => { $('#trackCur').textContent = trackName(cfg.track) || 'своя (trackId)'; $('#trackRow').hidden = !!trackName(cfg.track) && !list.custom; };
+  const draw = () => {
+    const has = q.value.trim(), found = has ? searchTracks(q.value).slice(0, 8) : [];
+    list.innerHTML = found.map(([id, n, c]) => `<button data-id="${id}" class="${id === cfg.track ? 'sel' : ''}">${esc(n)}<small>${esc(c)}</small></button>`).join('')
+      + (has && !found.length ? '<p class="hint">Ничего не нашлось — попробуй часть названия или город.</p>' : '')
+      + (has ? '<button data-id="custom">Другая трасса<small>ввести trackId вручную</small></button>' : '');
+  };
+  q.oninput = draw;
+  list.onclick = e => {
+    const b = e.target.closest('[data-id]'); if(!b) return;
+    q.value = ''; draw();
+    if(b.dataset.id === 'custom'){ list.custom = true; showCur(); $('#track').focus(); return; }
+    list.custom = false; cfg.track = b.dataset.id; $('#track').value = cfg.track; saveCfg(); showCur();
     if(running){ KC.close(); KC.comp = {}; KC.open(); }
     ui();
   };
+  $('#track').addEventListener('change', showCur);
+  showCur();
 }
 Voice.fill(); if('speechSynthesis' in window) speechSynthesis.onvoiceschanged = () => Voice.fill();
 loadVoice(); bind(); ui();
