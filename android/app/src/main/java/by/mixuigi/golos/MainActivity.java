@@ -61,7 +61,8 @@ public class MainActivity extends Activity {
                 return true;
             }
         });
-        if (saved == null) web.loadUrl(URL);
+        // метка в адресе — чтобы после правок сайта не показывать закэшированную страницу (Pages кэширует 10 мин)
+        if (saved == null) web.loadUrl(URL + "?v=" + System.currentTimeMillis());
         else web.restoreState(saved);
 
         tts = new TextToSpeech(this, st -> {
