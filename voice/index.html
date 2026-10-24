@@ -143,7 +143,7 @@ function words(n, fem){
    ',' — короткая пауза, '.' — конец фразы. Нейроголос склеивает mp3 из snd/<голос>/<ключ>.mp3
    (генерирует make_clips.py), системный голос читает тот же текст. */
 const PHR = {leader:'Лидер:', pos:'Позиция', best:'Лучший!', youlead:'Ты лидер!', lost:'Нет связи с таймингом.',
-  back:'Связь с таймингом есть.', watch:'Слежу за картом', nolaps:'Кругов пока нет.', setnum:'Укажи номер карта.'};
+  back:'Связь с таймингом есть.', watch:'Слежу за картом', seen:'Вижу карт', nolaps:'Кругов пока нет.', setnum:'Укажи номер карта.'};
 const CLIP_KEYS = [...Array(100).keys()].map(i => 'n' + i).concat([...Array(10).keys()].map(i => 'z' + i), ['f1','f2'], Object.keys(PHR));
 function keyText(k){
   if(PHR[k]) return PHR[k];
@@ -282,7 +282,8 @@ document.addEventListener('visibilitychange', () => { if(document.visibilityStat
 /* ---------- Kart Chrono ---------- */
 const KC = {
   // status: off — не подключались/нет сети, wait — подключаемся, idle — сервер отвечает, но заезда нет, on — идут данные
-  ws:null, status:'off', comp:{}, primed:false, run:'', raceName:'', runName:'', flag:null, lostAt:0, saidLost:false, timer:{},
+  // epoch растёт с каждым снимком clear: номера кругов сравниваются только внутри одного снимка
+  ws:null, status:'off', comp:{}, primed:false, epoch:0, guid:null, seenFor:null, run:'', raceName:'', runName:'', flag:null, lostAt:0, saidLost:false, timer:{},
   open(){
     if(this.ws && this.ws.readyState <= 1) return;
     let ws; try{ ws = new WebSocket(KC_WS); }catch(e){ return; }
@@ -312,13 +313,19 @@ const KC = {
   close(){ const ws = this.ws; this.ws = null; if(ws) try{ ws.close(); }catch(e){} this.status = 'off'; },
   json(m){
     this.status = 'on';
-    if(m.command === 'clear'){ this.comp = {}; this.primed = false; }
+    if(m.command === 'clear'){ this.comp = {}; this.primed = false; this.epoch++; }
+    if(m[F.RUN_GUID] != null) this.guid = m[F.RUN_GUID];
     if(m[F.RACE_NAME] != null) this.raceName = m[F.RACE_NAME];
     if(m[F.RUN_NAME] != null) this.runName = m[F.RUN_NAME];
     this.run = [this.raceName, this.runName].filter(Boolean).join(' · ');
     if(m[F.FLAG] != null) this.flag = m[F.FLAG];
     for(const sec of ['results','pitlane']) if(m[sec]) for(const cid in m[sec]) this.diff(cid, m[sec][cid]);
     if(m.command === 'clear') this.primed = true;   // круги из снимка не озвучиваем, только новые
+    // карт появляется в тайминге только после первого пересечения линии — сообщаем об этом голосом один раз за заезд
+    const seenKey = (this.guid || this.run) + '|' + cfg.num;
+    if(running && cfg.num && this.seenFor !== seenKey && Object.values(this.comp).some(c => String(c[F.NUM] ?? '') === String(cfg.num))){
+      this.seenFor = seenKey; Voice.say(['seen', numKey(+cfg.num), '.'].filter(Boolean));
+    }
     ui();
   },
   diff(cid, d){
@@ -333,12 +340,12 @@ const KC = {
     const c = this.comp[cid]; if(!c) return;
     const lt = c[F.LAST1], n = c[F.LAPS];
     if(!(lt > 0)) return;
-    if(last && last.cid === cid && last.run === this.run && (n != null ? n <= last.n : lt === last.lt)) return;
+    if(last && last.cid === cid && last.epoch === this.epoch && (n != null ? n <= last.n : lt === last.lt)) return;
     const all = Object.values(this.comp), p1 = all.find(x => x[F.POS] === 1);
     let leader = null;
     if(cfg.leaderMode === 'best') leader = Math.min(...all.map(x => x[F.BEST] > 0 ? x[F.BEST] : Infinity));
     else if(p1 && p1 !== c) leader = cfg.leaderMode === 'p1last' ? p1[F.LAST1] : p1[F.BEST];
-    const lap = {cid, run:this.run, n, lt, pos:c[F.POS], best:c[F.BEST], pb: c[F.BEST] > 0 && lt <= c[F.BEST] && (n != null ? n > 1 : laps.some(l => l.run === this.run)),
+    const lap = {cid, epoch:this.epoch, run:this.run, n, lt, pos:c[F.POS], best:c[F.BEST], pb: c[F.BEST] > 0 && lt <= c[F.BEST] && (n != null ? n > 1 : laps.some(l => l.run === this.run)),
       leader: isFinite(leader) ? leader : null, me1: p1 === c, at: Date.now()};
     pushLap(lap);
   }
