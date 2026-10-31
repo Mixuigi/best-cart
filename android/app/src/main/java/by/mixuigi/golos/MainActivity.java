@@ -4,12 +4,14 @@ import android.Manifest;
 import android.app.Activity;
 import android.content.Intent;
 import android.content.pm.PackageManager;
+import android.media.AudioManager;
 import android.net.Uri;
 import android.os.Build;
 import android.os.Bundle;
 import android.os.PowerManager;
 import android.provider.Settings;
 import android.speech.tts.TextToSpeech;
+import android.view.View;
 import android.webkit.JavascriptInterface;
 import android.webkit.RenderProcessGoneDetail;
 import android.webkit.WebChromeClient;
@@ -36,7 +38,14 @@ public class MainActivity extends Activity {
         super.onCreate(saved);
         live = this;
 
-        web = new WebView(this);
+        // Страница всегда считает себя «на экране»: иначе Chromium у свёрнутой страницы без звука через
+        // несколько минут сильно тормозит таймеры, и озвучка в кармане запаздывает или пропадает.
+        web = new WebView(this) {
+            @Override
+            protected void onWindowVisibilityChanged(int visibility) {
+                super.onWindowVisibilityChanged(visibility == View.GONE ? View.GONE : View.VISIBLE);
+            }
+        };
         setContentView(web);
         WebSettings s = web.getSettings();
         s.setJavaScriptEnabled(true);
@@ -124,6 +133,13 @@ public class MainActivity extends Activity {
         @JavascriptInterface
         public void stopSpeak() {
             if (tts != null) tts.stop();
+        }
+
+        /** Во время звонка Discord кнопки телефона меняют громкость звонка, а не медиа — поднимаем медиа отсюда. */
+        @JavascriptInterface
+        public void maxVolume() {
+            AudioManager am = (AudioManager) getSystemService(AUDIO_SERVICE);
+            am.setStreamVolume(AudioManager.STREAM_MUSIC, am.getStreamMaxVolume(AudioManager.STREAM_MUSIC), AudioManager.FLAG_SHOW_UI);
         }
 
         @JavascriptInterface

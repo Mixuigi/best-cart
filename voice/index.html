@@ -144,6 +144,8 @@ select{max-width:60%}
     <label><span>«Твой лучший круг» при личном рекорде</span><input type="checkbox" id="sayPb"></label>
     <label><span>Предупреждать о потере связи</span><input type="checkbox" id="sayConn"></label>
     <label><span>Голос</span><select id="voice"></select></label>
+    <label><span>Громкость голоса <b id="boostVal"></b><br><small class="hint">выше 100 % — для Discord и шлема; системный голос не усиливается</small></span><input type="range" id="boost" min="1" max="4" step="0.25" style="width:45%"></label>
+    <button id="maxVol" hidden>🔊 Громкость медиа телефона на максимум</button>
     <label><span>Темп (у нейроголоса — только паузы)</span><select id="rate"><option value="0.9">медленно</option><option value="1">обычно</option><option value="1.15">быстрее</option><option value="1.3">быстро</option></select></label>
   </div>
 
@@ -296,7 +298,7 @@ function searchTracks(query){
   return res.sort((a, b) => b[0] - a[0] || a[1] - b[1]).map(([, i]) => TRACKS[i]);
 }
 const KEY = 'lapvoice.v1';
-const DEF = {num:'', track:STAYKI, rep:2, leaderMode:'p1best', leaderWhen:'new', sayPos:true, sayGap:false, sayTaunt:true, sayPb:true, sayConn:true, voice:'nn:svetlana', rate:1, keep:2, board:false};
+const DEF = {num:'', track:STAYKI, rep:2, leaderMode:'p1best', leaderWhen:'new', sayPos:true, sayGap:false, sayTaunt:true, sayPb:true, sayConn:true, voice:'nn:svetlana', rate:1, keep:2, board:false, boost:1};
 const $ = s => document.querySelector(s);
 
 let cfg = {...DEF};
@@ -410,12 +412,28 @@ const Clips = {                              // нейроголос: заран
     this.until = t;
   },
   cancel(){ if(this.ctx){ this.ctx.suspend(); this.until = 0; } },
-  fxFor:null, fxIn:null,
+  fxFor:null, fxIn:null, mFor:null, mIn:null,
   out(){                                     // вход цепочки эффектов текущего голоса
-    const c = this.audio(), fx = (curVoice() || {}).fx || '';
+    const c = this.audio(), fx = (curVoice() || {}).fx || '', m = this.master();
     if(this.fxIn && this.fxFor === fx) return this.fxIn;
     this.fxFor = fx;
-    return this.fxIn = fx === 'radio' ? radioChain(c, c.destination) : fx === 'hall' ? hallChain(c, c.destination) : c.destination;
+    return this.fxIn = fx === 'radio' ? radioChain(c, m) : fx === 'hall' ? hallChain(c, m) : m;
+  },
+  // «Громкость голоса» сверх 100 %: усиление → ограничитель → мягкий срез. Нужна, когда Discord
+  // переводит телефон в режим звонка и Android приглушает остальные приложения.
+  master(){
+    const c = this.audio(), b = Math.max(1, +cfg.boost || 1);
+    if(this.mIn && this.mFor === b) return this.mIn;
+    if(this.mIn && this.mIn !== c.destination) try{ this.mIn.disconnect(); }catch(e){}
+    this.mFor = b; this.fxIn = null;                          // эффекты переподключатся к новому мастеру
+    if(b === 1) return this.mIn = c.destination;
+    const g = c.createGain(), lim = c.createDynamicsCompressor(), clip = c.createWaveShaper();
+    g.gain.value = b;
+    lim.threshold.value = -6; lim.knee.value = 0; lim.ratio.value = 20; lim.attack.value = .001; lim.release.value = .12;
+    const curve = new Float32Array(2049); for(let i = 0; i < curve.length; i++){ const x = i/1024 - 1; curve[i] = Math.tanh(1.5*x) / Math.tanh(1.5) * .97; }
+    clip.curve = curve;
+    g.connect(lim); lim.connect(clip); clip.connect(c.destination);
+    return this.mIn = g;
   }
 };
 // «Гоночное радио»: узкая полоса как у рации, лёгкий перегруз и щелчки в начале и конце фразы
@@ -446,13 +464,13 @@ function radioClick(c, t, open){              // писк открытия ка�
   if(open){
     const o = c.createOscillator(), g = c.createGain(); o.frequency.value = 1250; g.gain.value = 0;
     g.gain.setValueAtTime(0, t); g.gain.linearRampToValueAtTime(.12, t + .01); g.gain.setValueAtTime(.12, t + .07); g.gain.linearRampToValueAtTime(0, t + .09);
-    o.connect(g); g.connect(c.destination); o.start(t); o.stop(t + .1);
+    o.connect(g); g.connect(Clips.master()); o.start(t); o.stop(t + .1);
   } else {
     const n = c.createBuffer(1, Math.floor(c.sampleRate*.18), c.sampleRate), d = n.getChannelData(0);
     for(let i = 0; i < d.length; i++) d[i] = (Math.random()*2 - 1) * (1 - i/d.length);
     const s = c.createBufferSource(), bp = c.createBiquadFilter(), g = c.createGain();
     s.buffer = n; bp.type = 'bandpass'; bp.frequency.value = 2500; bp.Q.value = .7; g.gain.value = .09;
-    s.connect(bp); bp.connect(g); g.connect(c.destination); s.start(t);
+    s.connect(bp); bp.connect(g); g.connect(Clips.master()); s.start(t);
   }
 }
 function trimSilence(b){                     // у mp3 от TTS тишина по краям — без неё фрагменты звучат слитно
@@ -784,7 +802,7 @@ function ui(){
 const esc = s => String(s ?? '').replace(/[&<>"]/g, ch => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[ch]));
 
 function bind(){
-  const map = {rep:'rep', leaderMode:'leaderMode', leaderWhen:'leaderWhen', voice:'voice', rate:'rate', keep:'keep', track:'track'};
+  const map = {rep:'rep', leaderMode:'leaderMode', leaderWhen:'leaderWhen', voice:'voice', rate:'rate', keep:'keep', track:'track', boost:'boost'};
   for(const id in map){ const el = $('#' + id); el.value = cfg[map[id]]; el.onchange = () => { cfg[map[id]] = el.value; saveCfg(); if(id === 'keep' && running) Keep.start(); if(id === 'voice') loadVoice(); if(id === 'track' && running){ KC.close(); KC.comp = {}; KC.open(); } ui(); }; }
   for(const id of ['sayPos','sayGap','sayTaunt','sayPb','sayConn']){ const el = $('#' + id); el.checked = cfg[id]; el.onchange = () => { cfg[id] = el.checked; saveCfg(); }; }
   const num = $('#num'); num.value = cfg.num;
@@ -795,6 +813,12 @@ function bind(){
   Pocket.bind();
   $('#board').hidden = !cfg.board;
   $('#boardBtn').onclick = () => { cfg.board = !cfg.board; saveCfg(); $('#board').hidden = !cfg.board; ui(); };
+  const showBoost = () => { $('#boostVal').textContent = Math.round(+cfg.boost * 100) + ' %'; };
+  $('#boost').addEventListener('input', () => { cfg.boost = +$('#boost').value; showBoost(); });
+  $('#boost').addEventListener('change', () => { saveCfg(); Clips.audio().resume(); Voice.say([...lapKeys(64326), '.']); });
+  showBoost();
+  // в Android-приложении: во время звонка Discord кнопки меняют громкость звонка, а не медиа — поднимаем медиа отсюда
+  if(window.GolosApp && GolosApp.maxVolume){ $('#maxVol').hidden = false; $('#maxVol').onclick = () => GolosApp.maxVolume(); }
   $('#testV').onclick = () => { Clips.audio().resume(); Voice.say([...lapKeys(64326), '.', 'leader', ',', ...lapKeys(63412), '.']); };
   $('#test').onclick = () => Test.toggle();
   const q = $('#trackQ'), list = $('#tlist');
