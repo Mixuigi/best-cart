@@ -33,7 +33,7 @@ public class KeepAliveService extends Service {
     public void onCreate() {
         super.onCreate();
         inst = this;
-        NotificationChannel ch = new NotificationChannel(CH, "Голос круга", NotificationManager.IMPORTANCE_LOW);
+        NotificationChannel ch = new NotificationChannel(CH, "Lap Voice", NotificationManager.IMPORTANCE_LOW);
         ch.setShowBadge(false);
         getSystemService(NotificationManager.class).createNotificationChannel(ch);
 
@@ -90,7 +90,7 @@ public class KeepAliveService extends Service {
         return new Notification.Builder(this, CH)
                 .setSmallIcon(R.drawable.ic_launcher)
                 .setContentTitle(title)
-                .setContentText("Голос круга работает в фоне")
+                .setContentText("Lap Voice работает в фоне")
                 .setContentIntent(open)
                 .setOngoing(true)
                 .addAction(new Notification.Action.Builder(null, "Выключить", stop).build())

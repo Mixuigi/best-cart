@@ -23,7 +23,7 @@ import android.webkit.WebViewClient;
 import java.util.Locale;
 
 /**
- * Обёртка над сайтом «Голос круга»: вся логика живёт на странице (GitHub Pages),
+ * Lap Voice — обёртка над сайтом «Голос круга»: вся логика живёт на странице (GitHub Pages),
  * приложение только держит её живой при выключенном экране через KeepAliveService.
  */
 public class MainActivity extends Activity {

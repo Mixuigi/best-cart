@@ -90,7 +90,7 @@ node -e "const s=require('fs').readFileSync('index.html','utf8');const m=[...s.m
 
 - Логика остаётся на сайте: правки страницы приезжают в приложение через Pages, пересобирать APK не нужно.
 - Мост JS → Android: `window.GolosApp` (`speak`, `stopSpeak`, `setStatus`). Системный голос в приложении идёт через Android TextToSpeech (в WebView нет Web Speech). Кнопки наушников ловит нативная MediaSession и зовёт `repeatLast()` на странице.
-- Сборка — GitHub Actions `.github/workflows/apk.yml` при пуше в `android/**`; APK выкладывается в релиз `apk`: https://github.com/Mixuigi/best-cart/releases/download/apk/golos-kruga.apk. При ошибке лог сборки уходит в релиз `apk-log` (`build-log.txt`) — его можно скачать без авторизации.
+- Сборка — GitHub Actions `.github/workflows/apk.yml` при пуше в `android/**`; APK выкладывается в релиз `apk`: https://github.com/Mixuigi/best-cart/releases/download/apk/lap-voice.apk (приложение называется Lap Voice; applicationId прежний `by.mixuigi.golos`, чтобы ставилось поверх старых версий). При ошибке лог сборки уходит в релиз `apk-log` (`build-log.txt`) — его можно скачать без авторизации.
 - Подпись: `android/app/sign.p12` (пароль в `app/build.gradle`) закоммичен намеренно, чтобы новые сборки ставились поверх старых. При изменениях поднимать `versionCode`.
 - Запасной вариант без APK — «карманный режим» на странице: экран не гаснет (wake lock), но чёрный и игнорирует касания.
 

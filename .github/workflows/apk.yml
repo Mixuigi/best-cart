@@ -1,5 +1,5 @@
-# Собирает APK «Голос круга» и выкладывает его в релиз `apk`:
-# https://github.com/Mixuigi/best-cart/releases/download/apk/golos-kruga.apk
+# Собирает APK Lap Voice и выкладывает его в релиз `apk`:
+# https://github.com/Mixuigi/best-cart/releases/download/apk/lap-voice.apk
 name: apk
 
 on:
@@ -32,9 +32,11 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          cp android/app/build/outputs/apk/release/app-release.apk golos-kruga.apk
-          gh release view apk >/dev/null 2>&1 || gh release create apk --title "Голос круга (APK)" --notes "Скачать golos-kruga.apk и установить на Android."
-          gh release upload apk golos-kruga.apk --clobber
+          cp android/app/build/outputs/apk/release/app-release.apk lap-voice.apk
+          gh release view apk >/dev/null 2>&1 || gh release create apk --title "Lap Voice (APK)" --notes "Скачать lap-voice.apk и установить на Android."
+          gh release edit apk --title "Lap Voice (APK)" --notes "Скачать lap-voice.apk и установить на Android."
+          gh release upload apk lap-voice.apk --clobber
+          gh release delete-asset apk golos-kruga.apk -y 2>/dev/null || true   # старое имя файла
       - name: Publish build log on failure
         if: failure()
         env:
