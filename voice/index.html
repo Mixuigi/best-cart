@@ -519,10 +519,37 @@ const Voice = {
 };
 function loadVoice(){ const v = curVoice(); if(v) Clips.load(v.clips); }
 
+/* ---------- Приколдесы: фразы за серию кругов подряд на позициях ---------- */
+// У каждого правила свой счёт: круг вне pos [от, до] — серия заново. Фраза звучит один раз за серию,
+// на laps-м круге; once — один раз за весь заезд. На одном круге звучит одна фраза: первое подходящее
+// правило в списке (узкие ставь выше), остальные ждут следующего круга. Числа в say — паузы в секундах.
+// Новые слова — в PHR и в CLIPS (make_clips.py), потом запустить генераторы фрагментов.
+const STREAKS = [
+  {id:'report', pos:[1, 6], laps:5, say:[1.6, 'report1', 1.0, 'report2', '.']},   // ≈2 с после времени, пауза 1 с внутри
+];
+const Streak = {
+  key:null, n:null, s:{},
+  // key — заезд + карт; n — номер круга: пропуск (обрыв связи) или сброс счётчика рвёт все серии, позиции там неизвестны
+  lap(key, n, pos){
+    if(this.key !== key) this.key = key, this.s = {}, this.n = null;
+    const cont = n == null || this.n == null || n === this.n + 1;
+    this.n = n;
+    let id = null;
+    for(const r of STREAKS){
+      const s = this.s[r.id] ||= {n:0, said:false, once:false};
+      if(pos >= r.pos[0] && pos <= r.pos[1]) s.n = cont ? s.n + 1 : 1; else s.n = 0, s.said = false;
+      if(!cont) s.said = false;
+      if(!id && s.n >= r.laps && !s.said && !s.once){ id = r.id; s.said = true; s.once = !!r.once; }
+    }
+    return id;
+  }
+};
+
 function announce(lap){
   const t = lapKeys(lap.lt), seq = [];
   for(let i = 0; i < +cfg.rep; i++) seq.push(...t, '.');
-  if(cfg.sayTaunt && lap.taunt) seq.push(1.6, 'report1', 1.0, 'report2', '.');   // ≈2 с после времени, пауза 1 с внутри
+  const r = cfg.sayTaunt && STREAKS.find(r => r.id === lap.taunt);
+  if(r) seq.push(...r.say);
   if(cfg.sayPb && lap.pb) seq.push('mybest', '.');
   if(cfg.sayPos && numKey(lap.pos) && lap.pos > 0) seq.push('pos', numKey(lap.pos), '.');
   if(cfg.sayGap && lap.pos !== 1) seq.push(...gapKeys(lap.gap));
@@ -577,7 +604,7 @@ document.addEventListener('visibilitychange', () => { if(document.visibilityStat
 const KC = {
   // status: off — не подключались/нет сети, wait — подключаемся, idle — сервер отвечает, но заезда нет, on — идут данные
   // epoch растёт с каждым снимком clear: номера кругов сравниваются только внутри одного снимка
-  ws:null, status:'off', comp:{}, primed:false, rs:{}, epoch:0, saidLeader:null, top:{epoch:-1, n:0}, guid:null, seenFor:null, run:'', raceName:'', runName:'', flag:null, lostAt:0, saidLost:false, timer:{},
+  ws:null, status:'off', comp:{}, primed:false, rs:{}, epoch:0, saidLeader:null, guid:null, seenFor:null, run:'', raceName:'', runName:'', flag:null, lostAt:0, saidLost:false, timer:{},
   open(){
     if(this.ws && this.ws.readyState <= 1) return;
     let ws; try{ ws = new WebSocket(KC_WS); }catch(e){ return; }
@@ -650,10 +677,8 @@ const KC = {
     const L = this.saidLeader, improved = cfg.leaderMode === 'p1last' ? p1 && p1[F.LAST1] > 0 && p1[F.LAST1] <= p1[F.BEST] && !(L && L.val === leader) : leader > 0 && !(leader >= L?.val);
     const fresh = !L || L.epoch !== this.epoch || L.lid !== lid || improved;
     if(fresh) this.saidLeader = {epoch:this.epoch, lid, val:leader};
-    // кругов подряд на 6-м месте или выше: подколка один раз, на 5-м таком круге (если вылетел из топ-6 — счёт заново)
-    if(this.top.epoch !== this.epoch) this.top = {epoch:this.epoch, n:0};
-    this.top.n = c[F.POS] >= 1 && c[F.POS] <= 6 ? this.top.n + 1 : 0;
-    const taunt = this.top.n === 5;
+    // серии считаются по заезду, а не по epoch: переподключение посреди гонки их не сбрасывает
+    const taunt = Streak.lap((this.guid || this.run) + '|' + cid, n, c[F.POS]);
     const lap = {cid, epoch:this.epoch, taunt, run:this.run, n, lt, pos:c[F.POS], gap:c[F.DIFF], best:c[F.BEST], pb: c[F.BEST] > 0 && lt <= c[F.BEST] && (n != null ? n > 1 : laps.some(l => l.run === this.run)),
       leader: leader > 0 ? leader : null, me1: cfg.leaderMode === 'best' ? lid === cid : p1 === c, sayLeader: cfg.leaderWhen !== 'new' || fresh, at: Date.now()};
     pushLap(lap);
@@ -676,7 +701,8 @@ const Test = {
     this.t = setInterval(() => {
       this.n++;
       const lt = 63500 + Math.floor(Math.random()*4000), best = Math.min(lt, ...laps.filter(l => l.run === 'тест').map(l => l.lt));
-      pushLap({cid:'test', run:'тест', n:this.n, lt, pos:1 + Math.floor(Math.random()*5), best, pb: lt === best && this.n > 1, leader: 63412, me1:false, at:Date.now()});
+      const pos = 1 + Math.floor(Math.random()*5);
+      pushLap({cid:'test', run:'тест', n:this.n, lt, pos, taunt:Streak.lap('тест|' + this.t, this.n, pos), best, pb: lt === best && this.n > 1, leader: 63412, me1:false, at:Date.now()});
     }, 20000);
     ui();
   }
