@@ -144,7 +144,7 @@ select{max-width:60%}
     </select></label>
     <label><span>Позиция</span><input type="checkbox" id="sayPos"></label>
     <label><span>Отставание от лидера</span><input type="checkbox" id="sayGap"></label>
-    <label><span>Приколдесы</span><input type="checkbox" id="sayTaunt"></label>
+    <label><span>Приколдесы<br><small class="hint">только голосом GLaDOS</small></span><input type="checkbox" id="sayTaunt"></label>
     <label><span>«Твой лучший круг» при личном рекорде</span><input type="checkbox" id="sayPb"></label>
     <label><span>Предупреждать о потере связи</span><input type="checkbox" id="sayConn"></label>
     <label><span>Голос</span><select id="voice"></select></label>
@@ -369,7 +369,7 @@ const VOICES = {
   svetlana: {name:'Светлана', clips:'svetlana'},
   dmitry:   {name:'Дмитрий', clips:'dmitry'},
   radio:    {name:'Гоночное радио — инженер', clips:'dmitry', fx:'radio'},
-  glados:   {name:'GLaDOS', clips:'glados', fx:'hall'},          // Светлана + обработка glados_style.py, зал — здесь
+  glados:   {name:'GLaDOS', clips:'glados', fx:'hall', taunts:true},          // Светлана + обработка glados_style.py, зал — здесь
 };
 const curVoice = () => cfg.voice.startsWith('nn:') ? VOICES[cfg.voice.slice(3)] : null;
 if(cfg.voice.startsWith('nn:') && !VOICES[cfg.voice.slice(3)]) cfg.voice = DEF.voice;
@@ -540,6 +540,10 @@ function loadVoice(){ const v = curVoice(); if(v) Clips.load(v.clips); }
 const STREAKS = [
   {id:'report', pos:[6, Infinity], laps:5, say:[1.6, 'report1', 1.0, 'report2', '.']},   // 6-е место и дальше; ≈2 с после времени, пауза 1 с внутри
 ];
+// Приколдесы говорит только голос с taunts (GLaDOS) и только своими фрагментами: пока они грузятся — молчим
+function tauntOff(){
+  return !cfg.sayTaunt ? 'выключены в настройках' : !curVoice()?.taunts ? 'только голосом GLaDOS' : !Voice.neural() ? 'голос GLaDOS ещё грузится' : '';
+}
 const Streak = {
   key:null, n:null, s:{},
   // key — заезд + карт; n — номер круга: пропуск (обрыв связи) или сброс счётчика рвёт все серии, позиции там неизвестны
@@ -561,7 +565,7 @@ const Streak = {
 function announce(lap){
   const t = lapKeys(lap.lt), seq = [];
   for(let i = 0; i < +cfg.rep; i++) seq.push(...t, '.');
-  const r = cfg.sayTaunt && STREAKS.find(r => r.id === lap.taunt);
+  const r = !tauntOff() && STREAKS.find(r => r.id === lap.taunt);
   if(r) seq.push(...r.say);
   if(Sim.on){ Sim.said(lap, seq); if(Sim.mute) return; }
   if(cfg.sayPb && lap.pb) seq.push('mybest', '.');
@@ -767,7 +771,7 @@ const Sim = {
     const txt = seq.map(k => typeof k === 'number' ? ' … ' : k === ',' ? ',' : k === '.' ? '. ' : ' ' + keyText(k)).join('')
       .replace(/\s+/g, ' ').replace(/ ([,.])/g, '$1').replace(/([,.!?:])[,.]+/g, '$1').trim();
     const st = STREAKS.map(r => `${r.id} ${Streak.s[r.id]?.n || 0}/${r.laps}`).join(', ');
-    const tag = lap.taunt ? ` · приколдес «${lap.taunt}»${cfg.sayTaunt ? '' : ' (выключены в настройках)'}` : '';
+    const tag = lap.taunt ? ` · приколдес «${lap.taunt}»${tauntOff() ? ` (молчит: ${tauntOff()})` : ''}` : '';
     this.add(`<b>круг ${lap.n ?? '?'}</b> · P${lap.pos ?? '—'} · ${fmt(lap.lt)} · серии: ${esc(st)}${esc(tag)}<br>«${esc(txt)}»`, lap.taunt ? 'hit' : '');
   },
   note(t){ this.add(esc(t), 'sys'); },
