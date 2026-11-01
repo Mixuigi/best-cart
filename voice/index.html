@@ -369,7 +369,8 @@ const VOICES = {
   svetlana: {name:'Светлана', clips:'svetlana'},
   dmitry:   {name:'Дмитрий', clips:'dmitry'},
   radio:    {name:'Гоночное радио — инженер', clips:'dmitry', fx:'radio'},
-  glados:   {name:'GLaDOS', clips:'glados', fx:'hall', taunts:true},          // Светлана + обработка glados_style.py, зал — здесь
+  glados:   {name:'GLaDOS', clips:'glados2', taunts:true},                   // модель TeraTTS/glados2-g2p-vits (RUTTS), make_glados2_clips.py
+  gladosSv: {name:'GLaDOS — обработка Светланы', clips:'glados', fx:'hall', taunts:true},   // Светлана + glados_style.py, зал — здесь
 };
 const curVoice = () => cfg.voice.startsWith('nn:') ? VOICES[cfg.voice.slice(3)] : null;
 if(cfg.voice.startsWith('nn:') && !VOICES[cfg.voice.slice(3)]) cfg.voice = DEF.voice;
