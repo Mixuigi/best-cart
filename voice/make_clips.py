@@ -24,6 +24,10 @@ CLIPS.update({
     'lost': 'Нет связи с таймингом.', 'back': 'Связь с таймингом есть.',
     'watch': 'Слежу за картом', 'seen': 'Вижу карт', 'gap': 'Отставание', 'lap1': 'круг', 'lap2': 'круга', 'lap5': 'кругов', 'report1': 'Я запишу в свой отчёт твои результаты.', 'report2': 'Их никто не увидит.', 'nolaps': 'Кругов пока нет.', 'setnum': 'Укажи номер карта.',
 })
+GREET = {   # приветствие при выборе голоса — только в папке своего голоса (hi в VOICES в index.html); GLaDOS — в make_glados2_clips.py
+    'svetlana': {'hi_svetlana': 'Привет! Я Света, и сегодня я твой менеджер.'},
+    'dmitry': {'hi_dmitry': 'Здравствуй! Я Дима, и сегодня я твой менеджер.', 'hi_radio': 'Здарова! Меня вынудили помочь тебе на трассе.'},
+}
 
 async def one(sem, voice, key, text, out):
     path = os.path.join(out, key + '.mp3')
@@ -43,7 +47,7 @@ async def main():
     jobs = []
     for name, voice in VOICES.items():
         out = os.path.join(here, 'snd', name); os.makedirs(out, exist_ok=True)
-        jobs += [one(sem, voice, k, t, out) for k, t in CLIPS.items()]
+        jobs += [one(sem, voice, k, t, out) for k, t in {**CLIPS, **GREET.get(name, {})}.items()]
     await asyncio.gather(*jobs)
     print('ok', len(jobs))
 

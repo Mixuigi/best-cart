@@ -339,6 +339,7 @@ const PHR = {leader:'Лидер:', ldbest:'Лучший круг лидера:',
 const CLIP_KEYS = [...Array(100).keys()].map(i => 'n' + i).concat([...Array(10).keys()].map(i => 'z' + i), ['f1','f2'], Object.keys(PHR));
 function keyText(k){
   if(PHR[k]) return PHR[k];
+  if(HI[k]) return HI[k];
   if(k === 'f1') return 'одна'; if(k === 'f2') return 'две';
   return k[0] === 'z' ? 'ноль ' + U[+k.slice(1)] : words(+k.slice(1));
 }
@@ -364,17 +365,20 @@ function fmt(ms){
 }
 
 /* ---------- Голос ---------- */
-// Голоса: clips — папка фрагментов в snd/ (генерирует make_clips.py), fx — обработка при воспроизведении
+// Голоса: clips — папка фрагментов в snd/ (генерирует make_clips.py), fx — обработка при воспроизведении,
+// hi — приветствия при выборе голоса (фрагменты лежат только в папке своего голоса; несколько — выпадает случайное)
 const VOICES = {
-  svetlana: {name:'Светлана', clips:'svetlana'},
-  dmitry:   {name:'Дмитрий', clips:'dmitry'},
-  radio:    {name:'Гоночное радио — инженер', clips:'dmitry', fx:'radio'},
-  glados:   {name:'GLaDOS', clips:'glados2', taunts:true},                   // модель TeraTTS/glados2-g2p-vits (RUTTS), make_glados2_clips.py
-  gladosSv: {name:'GLaDOS — обработка Светланы', clips:'glados', fx:'hall', taunts:true, hidden:true},   // Светлана + glados_style.py, зал — здесь; скрыт из списка, вернуть — убрать hidden
+  svetlana: {name:'Светик', clips:'svetlana', hi:['hi_svetlana']},
+  dmitry:   {name:'Димка', clips:'dmitry', hi:['hi_dmitry']},
+  radio:    {name:'Гоночный инженер', clips:'dmitry', fx:'radio', hi:['hi_radio']},
+  glados:   {name:'GLaDOS', clips:'glados2', taunts:true, hi:['hi_glados1', 'hi_glados2', 'hi_glados3', 'hi_glados4']},   // модель TeraTTS/glados2-g2p-vits (RUTTS), make_glados2_clips.py
 };
+const HI = {hi_svetlana:'Привет! Я Света, и сегодня я твой менеджер.', hi_dmitry:'Здравствуй! Я Дима, и сегодня я твой менеджер.', hi_radio:'Здарова! Меня вынудили помочь тебе на трассе.',
+  hi_glados1:'Голосовой модуль активирован. Начинаем испытание. Постарайся не разочаровать меня сразу.', hi_glados2:'Привет. Я буду считать твои круги. Все. Даже медленные. Особенно медленные.',
+  hi_glados3:'Хронометраж готов. Испытуемый — условно готов.', hi_glados4:'Ты выбрал меня. Разумное решение. Первое за сегодня.'};
 const curVoice = () => cfg.voice.startsWith('nn:') ? VOICES[cfg.voice.slice(3)] : null;
-if(cfg.voice === 'nn:gladosSv' && VOICES.gladosSv.hidden) cfg.voice = 'nn:glados';
-if(cfg.voice.startsWith('nn:') && !VOICES[cfg.voice.slice(3)]) cfg.voice = DEF.voice;
+if(cfg.voice === 'nn:gladosSv') cfg.voice = 'nn:glados';          // старая GLaDOS (обработка Светланы) удалена
+if(!VOICES[cfg.voice.replace(/^nn:/, '')]) cfg.voice = DEF.voice;   // и системные голоса из списка убраны — они только запасной вариант
 
 const Clips = {                              // нейроголос: заранее скачанные фрагменты, склейка через WebAudio
   ctx:null, buf:{}, name:null, ready:false, loading:false, errs:[], until:0, live:new Set(),
@@ -386,7 +390,8 @@ const Clips = {                              // нейроголос: заран
     if(this.name === name && (this.ready || this.loading)) return;
     if(this.name !== name) this.buf = {};
     this.name = name; this.ready = false; this.loading = true; this.errs = [];
-    const ctx = this.audio(), buf = this.buf, todo = CLIP_KEYS.filter(k => !buf[k]);
+    const hi = Object.values(VOICES).filter(v => v.clips === name).flatMap(v => v.hi || []);   // приветствия первыми — их ждут сразу после выбора
+    const ctx = this.audio(), buf = this.buf, todo = [...new Set([...hi, ...CLIP_KEYS])].filter(k => !buf[k]);
     let next = 0;
     const worker = async () => {
       while(next < todo.length && this.name === name){
@@ -396,6 +401,7 @@ const Clips = {                              // нейроголос: заран
             const r = await fetch(`snd/${name}/${k}.mp3`);
             if(!r.ok) throw new Error('HTTP ' + r.status);
             buf[k] = trimSilence(await ctx.decodeAudioData(await r.arrayBuffer()));
+            Greet.check();
           }catch(e){
             if(a === 2) this.errs.push(k + ': ' + (e && e.message || e));
             else await new Promise(res => setTimeout(res, 600 * (a + 1)));
@@ -438,7 +444,7 @@ const Clips = {                              // нейроголос: заран
     const c = this.audio(), fx = (curVoice() || {}).fx || '', m = this.master();
     if(this.fxIn && this.fxFor === fx) return this.fxIn;
     this.fxFor = fx;
-    return this.fxIn = fx === 'radio' ? radioChain(c, m) : fx === 'hall' ? hallChain(c, m) : m;
+    return this.fxIn = fx === 'radio' ? radioChain(c, m) : m;
   },
   // «Громкость голоса» сверх 100 %: усиление → ограничитель → мягкий срез. Нужна, когда Discord
   // переводит телефон в режим звонка и Android приглушает остальные приложения.
@@ -458,19 +464,6 @@ const Clips = {                              // нейроголос: заран
   }
 };
 // «Гоночное радио»: узкая полоса как у рации, лёгкий перегруз и щелчки в начале и конце фразы
-// Зал для GLaDOS: далёкий бетонный зал — предзадержка 40 мс, хвост ~2–2.5 с, верх до 7.5 кГц, wet 12 %.
-// Добавляется при воспроизведении, а не во фрагментах, чтобы хвост тянулся через всю фразу.
-function hallChain(c, dest){
-  const input = c.createGain(), dry = c.createGain(), pre = c.createDelay(.1), conv = c.createConvolver(), lp = c.createBiquadFilter(), wet = c.createGain();
-  const L = Math.floor(2.4 * c.sampleRate), ir = c.createBuffer(1, L, c.sampleRate), d = ir.getChannelData(0);
-  let e = 0; for(let i = 0; i < L; i++){ d[i] = (Math.random()*2 - 1) * Math.exp(-i / (.45 * c.sampleRate)); e += d[i]*d[i]; }
-  for(let i = 0; i < L; i++) d[i] /= Math.sqrt(e);           // энергия IR = 1 → громкость хвоста ≈ громкости голоса
-  conv.normalize = false; conv.buffer = ir;
-  pre.delayTime.value = .04; lp.type = 'lowpass'; lp.frequency.value = 7500; dry.gain.value = .44; wet.gain.value = .06;   // фрагменты GLaDOS сжаты плотнее — ×0.5, чтобы громкость была как у Светланы
-  input.connect(dry); dry.connect(dest);
-  input.connect(pre); pre.connect(conv); conv.connect(lp); lp.connect(wet); wet.connect(dest);
-  return input;
-}
 function radioChain(c, dest){
   const input = c.createGain(), hp = c.createBiquadFilter(), lp = c.createBiquadFilter(), sh = c.createWaveShaper(), pk = c.createBiquadFilter(), out = c.createGain();
   hp.type = 'highpass'; hp.frequency.value = 450; lp.type = 'lowpass'; lp.frequency.value = 3200;
@@ -531,14 +524,29 @@ const Voice = {
   },
   cancel(){ Clips.cancel(); if('speechSynthesis' in window) speechSynthesis.cancel(); if(window.GolosApp) GolosApp.stopSpeak(); },
   fill(){
-    const sel = $('#voice'), vs = 'speechSynthesis' in window ? speechSynthesis.getVoices().filter(v => /^ru/i.test(v.lang)) : [];
-    sel.innerHTML = Object.entries(VOICES).filter(([k, v]) => !v.hidden).map(([k, v]) => `<option value="nn:${k}">${v.name}</option>`).join('')
-      + (vs.length ? vs.map(v => `<option value="${esc(v.voiceURI)}">Система: ${esc(v.name)}</option>`).join('') : '<option value="">Системный голос телефона</option>');
+    const sel = $('#voice');
+    sel.innerHTML = Object.entries(VOICES).map(([k, v]) => `<option value="nn:${k}">${v.name}</option>`).join('');
     sel.value = cfg.voice;
     if(sel.value !== cfg.voice) sel.value = 'nn:svetlana';
   }
 };
 function loadVoice(){ const v = curVoice(); if(v) Clips.load(v.clips); }
+// Приветствие при выборе голоса — его же голосом, как только фрагмент докачался; не успел за 20 с — молчим
+const Greet = {
+  want:null, lastK:null,
+  ask(){
+    const v = curVoice(); if(!v || !v.hi) return;
+    const pool = v.hi.length > 1 ? v.hi.filter(k => k !== this.lastK) : v.hi;   // одно и то же два раза подряд не выпадает
+    this.want = {clips:v.clips, k:this.lastK = pool[Math.floor(Math.random() * pool.length)], until:Date.now() + 20000};
+    Clips.audio().resume(); this.check();
+  },
+  check(){
+    const w = this.want; if(!w) return;
+    if(Date.now() > w.until || (curVoice() || {}).clips !== w.clips){ this.want = null; return; }
+    if(Clips.name !== w.clips || !Clips.buf[w.k]) return;
+    this.want = null; Voice.cancel(); Clips.play([w.k, '.']);
+  }
+};
 // Пробная фраза («Проверить голос», ползунок громкости): пока она звучит, повторные нажатия игнорируются, а не встают в очередь
 const Sample = {
   end:0, endMs:0,
@@ -922,7 +930,7 @@ const esc = s => String(s ?? '').replace(/[&<>"]/g, ch => ({'&':'&amp;','<':'&lt
 
 function bind(){
   const map = {rep:'rep', leaderMode:'leaderMode', leaderWhen:'leaderWhen', voice:'voice', rate:'rate', keep:'keep', track:'track', boost:'boost', simEvery:'simEvery'};
-  for(const id in map){ const el = $('#' + id); el.value = cfg[map[id]]; el.onchange = () => { cfg[map[id]] = el.value; saveCfg(); if(id === 'keep' && running) Keep.start(); if(id === 'voice') loadVoice(); if(id === 'track' && running){ KC.close(); KC.comp = {}; KC.open(); } ui(); }; }
+  for(const id in map){ const el = $('#' + id); el.value = cfg[map[id]]; el.onchange = () => { cfg[map[id]] = el.value; saveCfg(); if(id === 'keep' && running) Keep.start(); if(id === 'voice'){ loadVoice(); Greet.ask(); } if(id === 'track' && running){ KC.close(); KC.comp = {}; KC.open(); } ui(); }; }
   for(const id of ['sayPos','sayGap','sayTaunt','sayPb','sayConn']){ const el = $('#' + id); el.checked = cfg[id]; el.onchange = () => { cfg[id] = el.checked; saveCfg(); }; }
   const num = $('#num'); num.value = cfg.num;
   num.oninput = () => { cfg.num = num.value.trim(); saveCfg(); last = null; ui(); };
@@ -961,7 +969,7 @@ function bind(){
   $('#track').addEventListener('change', showCur);
   showCur();
 }
-Voice.fill(); if('speechSynthesis' in window) speechSynthesis.onvoiceschanged = () => Voice.fill();
+Voice.fill();
 loadVoice(); bind(); ui();
 setInterval(() => { const d = new Date(); $('#clock').textContent = d.toTimeString().slice(0,8); renderRun(); }, 1000);
 </script>
