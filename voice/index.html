@@ -144,7 +144,7 @@ select{max-width:60%}
     </select></label>
     <label><span>Позиция</span><input type="checkbox" id="sayPos"></label>
     <label><span>Отставание от лидера</span><input type="checkbox" id="sayGap"></label>
-    <label><span>Приколдесы<br><small class="hint">только голосом GLaDOS</small></span><input type="checkbox" id="sayTaunt"></label>
+    <label id="tauntRow"><span>Приколдесы<br><small class="hint">фразы GLaDOS на старте и на трассе</small></span><input type="checkbox" id="sayTaunt"></label>
     <label><span>«Твой лучший круг» при личном рекорде</span><input type="checkbox" id="sayPb"></label>
     <label><span>Предупреждать о потере связи</span><input type="checkbox" id="sayConn"></label>
     <label><span>Голос</span><select id="voice"></select></label>
@@ -340,6 +340,7 @@ const CLIP_KEYS = [...Array(100).keys()].map(i => 'n' + i).concat([...Array(10).
 function keyText(k){
   if(PHR[k]) return PHR[k];
   if(HI[k]) return HI[k];
+  if(GL[k]) return GL[k];
   if(k === 'f1') return 'одна'; if(k === 'f2') return 'две';
   return k[0] === 'z' ? 'ноль ' + U[+k.slice(1)] : words(+k.slice(1));
 }
@@ -366,16 +367,22 @@ function fmt(ms){
 
 /* ---------- Голос ---------- */
 // Голоса: clips — папка фрагментов в snd/ (генерирует make_clips.py), fx — обработка при воспроизведении,
-// hi — приветствия при выборе голоса (фрагменты лежат только в папке своего голоса; несколько — выпадает случайное)
+// hi — приветствия при выборе голоса, start — фраза после «Слежу за картом» при СТАРТ (только с «Приколдесами»);
+// фрагменты hi/start лежат только в папке своего голоса, из нескольких выпадает случайный, тот же два раза подряд — нет
 const VOICES = {
   svetlana: {name:'Светик', clips:'svetlana', hi:['hi_svetlana']},
   dmitry:   {name:'Димка', clips:'dmitry', hi:['hi_dmitry']},
   radio:    {name:'Гоночный инженер', clips:'dmitry', fx:'radio', hi:['hi_radio']},
-  glados:   {name:'GLaDOS', clips:'glados2', taunts:true, hi:['hi_glados1', 'hi_glados2', 'hi_glados3', 'hi_glados4']},   // модель TeraTTS/glados2-g2p-vits (RUTTS), make_glados2_clips.py
+  glados:   {name:'GLaDOS', clips:'glados2', taunts:true, hi:['hi_glados1', 'hi_glados2', 'hi_glados3', 'hi_glados4'],
+            start:['gl_helmet', 'gl_bones', 'gl_count', 'gl_turn', 'gl_trial']},   // модель TeraTTS/glados2-g2p-vits (RUTTS), make_glados2_clips.py
 };
 const HI = {hi_svetlana:'Привет! Я Света, и сегодня я твой мэнеджер.', hi_dmitry:'Здравствуй! Я Дима, и сегодня я твой мэнэджер.', hi_radio:'Здарова! Меня вынудили помочь тебе на трассе.',
   hi_glados1:'Голосовой модуль активирован. Начинаем испытание. Постарайся не разочаровать меня сразу.', hi_glados2:'Привет. Я буду считать твои круги. Все. Даже медленные. Особенно медленные.',
   hi_glados3:'Хронометраж готов. Испытуемый — условно готов.', hi_glados4:'Ты выбрал меня. Разумное решение. Первое за сегодня.'};
+const GL = {gl_helmet:'Шлем надет? Хорошо. Наличие мозга внутри шлема проверить не могу.', gl_bones:'Добро пожаловать, мешок с костями. Постарайся вернуться с трассы в том же количестве частей, в каком выехал.',
+  gl_count:'Я буду считать твои круги. Все. Даже медленные. Особенно медленные.', gl_turn:'Постарайся, чтобы первый поворот не стал последним.',
+  gl_trial:'Начинается испытание на скорость, реакцию и умение проходить повороты. Два пункта из трёх у тебя есть. Не скажу, каких.'};   // фразы GLaDOS (make_glados2_clips.py → RIDE)
+const pick = (list, not) => { const p = list.length > 1 ? list.filter(k => k !== not) : list; return p[Math.floor(Math.random() * p.length)]; };
 const curVoice = () => cfg.voice.startsWith('nn:') ? VOICES[cfg.voice.slice(3)] : null;
 if(cfg.voice === 'nn:gladosSv') cfg.voice = 'nn:glados';          // старая GLaDOS (обработка Светланы) удалена
 if(!VOICES[cfg.voice.replace(/^nn:/, '')]) cfg.voice = DEF.voice;   // и системные голоса из списка убраны — они только запасной вариант
@@ -390,7 +397,7 @@ const Clips = {                              // нейроголос: заран
     if(this.name === name && (this.ready || this.loading)) return;
     if(this.name !== name) this.buf = {};
     this.name = name; this.ready = false; this.loading = true; this.errs = [];
-    const hi = Object.values(VOICES).filter(v => v.clips === name).flatMap(v => v.hi || []);   // приветствия первыми — их ждут сразу после выбора
+    const hi = Object.values(VOICES).filter(v => v.clips === name).flatMap(v => [...(v.hi || []), ...(v.start || [])]);   // свои фразы голоса первыми — приветствие ждут сразу после выбора
     const ctx = this.audio(), buf = this.buf, todo = [...new Set([...hi, ...CLIP_KEYS])].filter(k => !buf[k]);
     let next = 0;
     const worker = async () => {
@@ -536,8 +543,7 @@ const Greet = {
   want:null, lastK:null,
   ask(){
     const v = curVoice(); if(!v || !v.hi) return;
-    const pool = v.hi.length > 1 ? v.hi.filter(k => k !== this.lastK) : v.hi;   // одно и то же два раза подряд не выпадает
-    this.want = {clips:v.clips, k:this.lastK = pool[Math.floor(Math.random() * pool.length)], until:Date.now() + 20000};
+    this.want = {clips:v.clips, k:this.lastK = pick(v.hi, this.lastK), until:Date.now() + 20000};
     Clips.audio().resume(); this.check();
   },
   check(){
@@ -816,7 +822,9 @@ function start(){
   // iPhone: без этого беззвучный режим (переключатель сбоку) глушит WebAudio, Safari 17+
   try{ if(navigator.audioSession) navigator.audioSession.type = 'playback'; }catch(e){}
   Clips.audio().resume();             // AudioContext оживает только по нажатию
-  Voice.say(!cfg.num ? ['setnum', '.'] : ['watch', numKey(+cfg.num), '.'].filter(Boolean));
+  // GLaDOS с «Приколдесами»: после «Слежу за картом N» — пауза ~1 с (0.45 «.» + 0.6) и случайная фраза из start
+  const v = curVoice(), sp = cfg.num && v && v.start && !tauntOff() ? start.last = pick(v.start.filter(k => Clips.buf[k]), start.last) : null;
+  Voice.say(!cfg.num ? ['setnum', '.'] : ['watch', numKey(+cfg.num), '.', ...(sp ? [0.6, sp, '.'] : [])].filter(Boolean));
   KC.open(); lockScreenOn(); ui();
 }
 function stop(soft){                 // soft — не обрывать то, что сейчас говорится (конец симуляции)
@@ -880,6 +888,7 @@ function runClock(){                        // [подпись, значение
   return null;
 }
 function renderRun(){
+  $('#tauntRow').hidden = !(curVoice() || {}).taunts;   // «Приколдесы» есть только у GLaDOS
   const on = running && KC.status === 'on';
   $('#runbar').hidden = !on;
   if(!on) return;
