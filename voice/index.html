@@ -539,6 +539,20 @@ const Voice = {
   }
 };
 function loadVoice(){ const v = curVoice(); if(v) Clips.load(v.clips); }
+// Пробная фраза («Проверить голос», ползунок громкости): пока она звучит, повторные нажатия игнорируются, а не встают в очередь
+const Sample = {
+  end:0, endMs:0,
+  busy(){
+    if(Voice.neural()) return Clips.live.size > 0 && Clips.audio().currentTime < this.end;
+    if(window.speechSynthesis) return speechSynthesis.speaking;
+    return Date.now() < this.endMs;          // системный голос в APK: конца фразы не узнать — ждём её примерную длину
+  },
+  say(seq){
+    if(this.busy()) return;
+    Clips.audio().resume(); Voice.say(seq);
+    this.end = Clips.until; this.endMs = Date.now() + 5000;
+  }
+};
 
 /* ---------- Приколдесы: фразы за серию кругов подряд на позициях ---------- */
 // У каждого правила свой счёт: круг вне pos [от, до] — серия заново. Фраза звучит один раз за серию,
@@ -920,11 +934,11 @@ function bind(){
   $('#boardBtn').onclick = () => { cfg.board = !cfg.board; saveCfg(); $('#board').hidden = !cfg.board; ui(); };
   const showBoost = () => { $('#boostVal').textContent = Math.round(+cfg.boost * 100) + ' %'; };
   $('#boost').addEventListener('input', () => { cfg.boost = +$('#boost').value; showBoost(); });
-  $('#boost').addEventListener('change', () => { saveCfg(); Clips.audio().resume(); Voice.say([...lapKeys(64326), '.']); });
+  $('#boost').addEventListener('change', () => { saveCfg(); Sample.say([...lapKeys(64326), '.']); });
   showBoost();
   // в Android-приложении: во время звонка Discord кнопки меняют громкость звонка, а не медиа — поднимаем медиа отсюда
   if(window.GolosApp && GolosApp.maxVolume){ $('#maxVol').hidden = false; $('#maxVol').onclick = () => GolosApp.maxVolume(); }
-  $('#testV').onclick = () => { Clips.audio().resume(); Voice.say([...lapKeys(64326), '.', 'leader', ',', ...lapKeys(63412), '.']); };
+  $('#testV').onclick = () => Sample.say([...lapKeys(64326), '.', 'leader', ',', ...lapKeys(63412), '.']);
   $('#test').onclick = () => Sim.toggle();
   const plan = $('#simPlan'); plan.value = cfg.simPlan; plan.oninput = () => { cfg.simPlan = plan.value; saveCfg(); };
   const q = $('#trackQ'), list = $('#tlist');
