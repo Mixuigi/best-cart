@@ -27,7 +27,8 @@ STRESS = {             # ключ → текст целиком
     'report2': 'Их никт+о неув+идит.',   # «не» в словаре — «нё»; слитно читается безударным, как в речи
     'watch': 'Слеж+у зак+артом',         # «за» в словаре ударное
 }
-SCALE = 1.1            # lenght_scale (так в библиотеке): >1 медленнее
+SCALE = 0.95           # lenght_scale (так в библиотеке): >1 медленнее; при 1.1 «ноль» тянулся в «ноаль»
+NOISE, NOISE_W = 0.33, 0.5   # «дрожь» звука и длительностей; у RUTTS 0.667/0.8 зашиты — ровнее звучит с меньшими (выбрал пользователь)
 TARGET_RMS = 0.14      # громкость речи как у фрагментов Светланы (медиана по snd/svetlana)
 SR = 22050             # модель всегда отдаёт 22050 Гц
 MODELS = os.environ.get('RUTTS_MODELS', os.path.expanduser('~/venvs/rutts-models'))   # иначе RUTTS качает модель в ./model
@@ -35,6 +36,11 @@ FORCE, CHECK = '--force' in sys.argv, '--check' in sys.argv
 
 def text_for(k):
     return STRESS.get(k) or re.sub(r'[а-яё]+', lambda m: WORDS.get(m[0].lower(), m[0]), CLIPS[k], flags=re.I)
+
+def synth(tts, text):   # как TTS.__call__, но со своими NOISE/NOISE_W
+    ids = np.expand_dims(np.array(tts._get_seq(text), dtype=np.int64), 0)
+    return tts.model.run(None, {'input': ids, 'input_lengths': np.array([ids.shape[1]], dtype=np.int64),
+                                'scales': np.array([NOISE, SCALE, NOISE_W], dtype=np.float32), 'sid': None})[0][0, 0][0]
 
 def trim(x, sr, thr=0.01, pad=0.03):
     idx = np.flatnonzero(np.abs(x) > thr)
@@ -58,7 +64,7 @@ def main():
     for k in CLIPS:
         path = os.path.join(out, k + '.mp3')
         if os.path.exists(path) and not FORCE: continue
-        x = np.asarray(tts(text_for(k), lenght_scale=SCALE), dtype=np.float32).ravel()
+        x = np.asarray(synth(tts, text_for(k)), dtype=np.float32).ravel()
         y = level(trim(x, SR))
         sf.write(path, y.astype(np.float32), SR, format='MP3')
         print(k, end=' ', flush=True)

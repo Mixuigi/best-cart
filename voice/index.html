@@ -370,9 +370,10 @@ const VOICES = {
   dmitry:   {name:'Дмитрий', clips:'dmitry'},
   radio:    {name:'Гоночное радио — инженер', clips:'dmitry', fx:'radio'},
   glados:   {name:'GLaDOS', clips:'glados2', taunts:true},                   // модель TeraTTS/glados2-g2p-vits (RUTTS), make_glados2_clips.py
-  gladosSv: {name:'GLaDOS — обработка Светланы', clips:'glados', fx:'hall', taunts:true},   // Светлана + glados_style.py, зал — здесь
+  gladosSv: {name:'GLaDOS — обработка Светланы', clips:'glados', fx:'hall', taunts:true, hidden:true},   // Светлана + glados_style.py, зал — здесь; скрыт из списка, вернуть — убрать hidden
 };
 const curVoice = () => cfg.voice.startsWith('nn:') ? VOICES[cfg.voice.slice(3)] : null;
+if(cfg.voice === 'nn:gladosSv' && VOICES.gladosSv.hidden) cfg.voice = 'nn:glados';
 if(cfg.voice.startsWith('nn:') && !VOICES[cfg.voice.slice(3)]) cfg.voice = DEF.voice;
 
 const Clips = {                              // нейроголос: заранее скачанные фрагменты, склейка через WebAudio
@@ -525,7 +526,7 @@ const Voice = {
   cancel(){ Clips.cancel(); if('speechSynthesis' in window) speechSynthesis.cancel(); if(window.GolosApp) GolosApp.stopSpeak(); },
   fill(){
     const sel = $('#voice'), vs = 'speechSynthesis' in window ? speechSynthesis.getVoices().filter(v => /^ru/i.test(v.lang)) : [];
-    sel.innerHTML = Object.entries(VOICES).map(([k, v]) => `<option value="nn:${k}">${v.name}</option>`).join('')
+    sel.innerHTML = Object.entries(VOICES).filter(([k, v]) => !v.hidden).map(([k, v]) => `<option value="nn:${k}">${v.name}</option>`).join('')
       + (vs.length ? vs.map(v => `<option value="${esc(v.voiceURI)}">Система: ${esc(v.name)}</option>`).join('') : '<option value="">Системный голос телефона</option>');
     sel.value = cfg.voice;
     if(sel.value !== cfg.voice) sel.value = 'nn:svetlana';
