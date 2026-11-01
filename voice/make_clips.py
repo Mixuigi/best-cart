@@ -3,7 +3,7 @@
 Запуск:  pip install edge-tts  &&  python make_clips.py
 Результат: snd/<voice>/<key>.mp3. Ключи должны совпадать с CLIP_TEXT в index.html.
 """
-import asyncio, os
+import asyncio, os, re
 import edge_tts
 
 VOICES = {'svetlana': 'ru-RU-SvetlanaNeural', 'dmitry': 'ru-RU-DmitryNeural'}
@@ -25,21 +25,41 @@ CLIPS.update({
     'watch': 'Слежу за картом', 'seen': 'Вижу карт', 'gap': 'Отставание', 'lap1': 'круг', 'lap2': 'круга', 'lap5': 'кругов', 'report1': 'Я запишу в свой отчёт твои результаты.', 'report2': 'Их никто не увидит.', 'nolaps': 'Кругов пока нет.', 'setnum': 'Укажи номер карта.',
 })
 GREET = {   # приветствие при выборе голоса — только в папке своего голоса (hi в VOICES в index.html); GLaDOS — в make_glados2_clips.py
-    'svetlana': {'hi_svetlana': 'Привет! Я Света, и сегодня я твой менеджер.'},
-    'dmitry': {'hi_dmitry': 'Здравствуй! Я Дима, и сегодня я твой менеджер.', 'hi_radio': 'Здарова! Меня вынудили помочь тебе на трассе.'},
+    'svetlana': {'hi_svetlana': 'Привет! [0.6] Я Света, и сегодня я твой менеджер.'},   # сама edge-tts держит после «!» ~1.1 с
+    'dmitry': {'hi_dmitry': 'Здравствуй! [0.6] Я Дима, и сегодня я твой менеджер.', 'hi_radio': 'Здарова! Меня вынудили помочь тебе на трассе.'},
 }
+
+PAUSE = re.compile(r'\s*\[(\d+(?:\.\d+)?)\]\s*')   # «текст [0.6] текст» — части озвучиваются отдельно и склеиваются через паузу в секундах
+
+async def save(text, voice, path):
+    for attempt in range(4):
+        try:
+            await edge_tts.Communicate(text, voice, rate=RATE).save(path)
+            return
+        except Exception as e:
+            if attempt == 3: raise
+            await asyncio.sleep(1 + attempt)
+
+def join(paths, pauses, path):
+    import numpy as np, soundfile as sf
+    out, sr = [], 24000
+    for i, p in enumerate(paths):
+        x, sr = sf.read(p, dtype='float32')
+        idx = np.flatnonzero(np.abs(x) > 0.01); x = x[max(0, idx[0] - int(.03 * sr)):idx[-1] + int(.03 * sr)]
+        out.append(x)
+        if i < len(pauses): out.append(np.zeros(int(pauses[i] * sr), 'float32'))
+    sf.write(path, np.concatenate(out), sr, format='MP3')
 
 async def one(sem, voice, key, text, out):
     path = os.path.join(out, key + '.mp3')
     if os.path.exists(path): return
     async with sem:
-        for attempt in range(4):
-            try:
-                await edge_tts.Communicate(text, voice, rate=RATE).save(path)
-                return
-            except Exception as e:
-                if attempt == 3: raise
-                await asyncio.sleep(1 + attempt)
+        parts = PAUSE.split(text)
+        if len(parts) == 1: return await save(text, voice, path)
+        tmp = [f'{path}.{i}.mp3' for i in range(0, len(parts), 2)]
+        for i, t in zip(range(0, len(parts), 2), tmp): await save(parts[i], voice, t)
+        join(tmp, [float(p) for p in parts[1::2]], path)
+        for t in tmp: os.remove(t)
 
 async def main():
     sem = asyncio.Semaphore(6)
