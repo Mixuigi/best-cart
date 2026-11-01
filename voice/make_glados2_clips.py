@@ -43,10 +43,10 @@ STRESS = {             # ключ → текст целиком
     'hi_glados2': 'Привет. Я буду считать твои круги. Вс+е. Даже медленные. Особенно медленные.',   # словарь: «всё»
     'hi_glados3': 'Хронометраж гот+ов. Испытуемый — [0.4] условно гот+ов.',                        # словарь: «г+отов»; у тире модель держит всего 0.1 с
     'hi_glados4': 'Ты выбрал меня. Разумное решение. Первое засев+одня.',                           # «за» ударное, «сегодня» читается через «г»
-    'gl_cake': 'Побьёшь свой лучший круг — получишь торт. Это необещ+ание. Это мотивационная конструкция.',   # «не» — «нё»
+    'gl_cake': 'Побьёшь свой лучший круг — получишь т+оррт. Это необещ+ание. Это мотивационная конструкция.',   # «не» — «нё»; «торт» модель глотает до «тот» — двойная «р»
     'gl_helmet': 'Шлем надет? Хорошо. Наличие мозга внутри шл+ема проверить немог+у.',                       # словарь: «шлёма», «нё»
     'gl_bones': 'Добр+о пожаловать, мешок с костями. Постарайся вернуться с трассы в том же количестве частей, в каком выехал.',   # словарь: «д+обро»
-    'gl_brake': 'Голос Гл+адос активирован. Теперь каждое твоё торможение будет оц+енено. Беспристрастно. Почти.',   # латиница модели незнакома; «оценен+о»
+    'gl_brake': 'Голос Гл+адос активирован. Теп+ерь, каждое твоё торможение будет оц+енено. Беспристрастно. Почтт+и.',   # латиница модели незнакома; «оценен+о»; без запятой «тепе», без двойной «т» «почи»
 }
 SCALE = 0.826          # lenght_scale (так в библиотеке): >1 медленнее; 1.1 — «ноль» тянулся в «ноаль», 0.826 — в 1.15 раза быстрее 0.95 (выбор пользователя)
 NOISE, NOISE_W = 0.33, 0.5   # «дрожь» звука и длительностей; у RUTTS 0.667/0.8 зашиты — ровнее звучит с меньшими (выбрал пользователь)
@@ -56,6 +56,7 @@ MODELS = os.environ.get('RUTTS_MODELS', os.path.expanduser('~/venvs/rutts-models
 FORCE, CHECK = '--force' in sys.argv, '--check' in sys.argv
 ONLY = [a for a in sys.argv[1:] if not a.startswith('--')]   # ключи: пересоздать только их
 PAUSE = re.compile(r'\s*\[(\d+(?:\.\d+)?)\]\s*')
+SMOOTH = 8   # фразы RIDE синтезируются столько раз, берётся прогон с самым ровным тоном: у модели бывают «вскрики» (скачок на октаву)
 
 def text_for(k):
     return STRESS.get(k) or re.sub(r'[а-яё]+', lambda m: WORDS.get(m[0].lower(), m[0]), CLIPS[k], flags=re.I)
@@ -71,6 +72,15 @@ def render(tts, text):
         if i % 2: out.append(np.zeros(int(float(p) * SR), np.float32))
         elif p.strip(): out.append(trim(np.asarray(synth(tts, p), dtype=np.float32).ravel(), SR))
     return np.concatenate(out)
+
+def jump(x, n=int(.04 * SR), step=int(.0125 * SR)):   # самый резкий скачок тона между соседними кадрами, в полутонах
+    f = []
+    for i in range(0, len(x) - n, step):
+        fr = x[i:i+n] - x[i:i+n].mean()
+        if np.sqrt(np.mean(fr ** 2)) < 0.02: f.append(0); continue
+        ac = np.correlate(fr, fr, 'full')[n-1:]; lo, hi = int(SR / 500), int(SR / 70)
+        k = lo + np.argmax(ac[lo:hi]); f.append(SR / k if ac[k] > 0.3 * ac[0] else 0)
+    return max((abs(12 * np.log2(b / a)) for a, b in zip(f, f[1:]) if a and b), default=0)
 
 def trim(x, sr, thr=0.01, pad=0.03):
     idx = np.flatnonzero(np.abs(x) > thr)
@@ -94,7 +104,8 @@ def main():
     for k in ONLY or CLIPS:
         path = os.path.join(out, k + '.mp3')
         if os.path.exists(path) and not (FORCE or ONLY): continue
-        y = level(trim(render(tts, text_for(k)), SR))
+        runs = [trim(render(tts, text_for(k)), SR) for _ in range(SMOOTH if k in RIDE else 1)]
+        y = level(min(runs, key=jump))
         sf.write(path, y.astype(np.float32), SR, format='MP3')
         print(k, end=' ', flush=True)
     print('\nok', len(CLIPS))
