@@ -57,6 +57,10 @@ select{max-width:60%}
 .laps div{display:flex;justify-content:space-between;padding:6px 2px;border-bottom:1px solid var(--line)}
 .laps .pb{color:var(--ok)}
 .warn{color:var(--acc)}
+.simlog{display:flex;flex-direction:column;gap:2px;font:13px/1.35 'Roboto Mono',monospace;max-height:340px;overflow-y:auto}
+.simlog div{padding:4px 2px;border-bottom:1px solid var(--line)}
+.simlog .hit{color:var(--ok)}
+.simlog .sys{color:var(--dim)}
 .pocketBtn{width:100%}
 #trackQ{width:100%;font-size:17px}
 .tlist{display:flex;flex-direction:column;gap:6px}
@@ -152,13 +156,22 @@ select{max-width:60%}
   <div class="card">
     <h2>Работа в кармане</h2>
     <label><span>Фоновый звук (держит страницу живой при выключенном экране)</span><select id="keep"><option value="2">тихий шум</option><option value="1">почти тишина</option><option value="0">выкл</option></select></label>
-    <p class="hint">Перед заездом: нажать СТАРТ, заблокировать экран, телефон в карман. Кнопка паузы на наушниках повторяет последний круг. В настройках Android для Chrome: Батарея → «Без ограничений».</p>
-    <button id="test">🧪 Тест в кармане: фейковый круг каждые 20 с</button>
+    <p class="hint">Перед заездом: нажать СТАРТ, заблокировать экран, телефон в карман. Кнопка паузы на наушниках повторяет последний круг. В настройках Android для Chrome: Батарея → «Без ограничений». Проверить в кармане — симулятор ниже с кругом каждые 20 с.</p>
   </div>
 
   <div class="card">
     <h2>Круги</h2>
     <div class="laps" id="list"><p class="hint">Пока нет кругов</p></div>
+  </div>
+
+  <div class="card">
+    <h2>Симулятор заезда</h2>
+    <p class="hint">Фейковый заезд идёт через тот же разбор тайминга, что и настоящий: видно, что и на каком круге прозвучит. Твой карт — номер из «Мой карт».</p>
+    <label><span>Позиции по кругам</span><input id="simPlan" style="width:60%" autocomplete="off" autocapitalize="off" spellcheck="false"></label>
+    <p class="hint"><b>13*10</b> — 10 кругов на 13-м месте, <b>x</b> — круг без связи (пропущен), <b>r</b> — переподключение без пропуска. Пусто — позиции случайные, без конца.</p>
+    <label><span>Круг каждые</span><select id="simEvery"><option value="1">1 с — только текст</option><option value="6">6 с</option><option value="20">20 с — тест в кармане</option></select></label>
+    <button id="test">🧪 Запустить симуляцию</button>
+    <div class="simlog" id="simLog"></div>
   </div>
 
   <div class="card">
@@ -298,7 +311,7 @@ function searchTracks(query){
   return res.sort((a, b) => b[0] - a[0] || a[1] - b[1]).map(([, i]) => TRACKS[i]);
 }
 const KEY = 'lapvoice.v1';
-const DEF = {num:'', track:STAYKI, rep:2, leaderMode:'p1best', leaderWhen:'new', sayPos:true, sayGap:false, sayTaunt:true, sayPb:true, sayConn:true, voice:'nn:svetlana', rate:1, keep:2, board:false, boost:1};
+const DEF = {num:'', track:STAYKI, rep:2, leaderMode:'p1best', leaderWhen:'new', sayPos:true, sayGap:false, sayTaunt:true, sayPb:true, sayConn:true, voice:'nn:svetlana', rate:1, keep:2, board:false, boost:1, simPlan:'13*4 5 13*6 r 9*2 x*2 13*5', simEvery:'1'};
 const $ = s => document.querySelector(s);
 
 let cfg = {...DEF};
@@ -525,7 +538,7 @@ function loadVoice(){ const v = curVoice(); if(v) Clips.load(v.clips); }
 // правило в списке (узкие ставь выше), остальные ждут следующего круга. Числа в say — паузы в секундах.
 // Новые слова — в PHR и в CLIPS (make_clips.py), потом запустить генераторы фрагментов.
 const STREAKS = [
-  {id:'report', pos:[1, 6], laps:5, say:[1.6, 'report1', 1.0, 'report2', '.']},   // ≈2 с после времени, пауза 1 с внутри
+  {id:'report', pos:[6, Infinity], laps:5, say:[1.6, 'report1', 1.0, 'report2', '.']},   // 6-е место и дальше; ≈2 с после времени, пауза 1 с внутри
 ];
 const Streak = {
   key:null, n:null, s:{},
@@ -550,6 +563,7 @@ function announce(lap){
   for(let i = 0; i < +cfg.rep; i++) seq.push(...t, '.');
   const r = cfg.sayTaunt && STREAKS.find(r => r.id === lap.taunt);
   if(r) seq.push(...r.say);
+  if(Sim.on){ Sim.said(lap, seq); if(Sim.mute) return; }
   if(cfg.sayPb && lap.pb) seq.push('mybest', '.');
   if(cfg.sayPos && numKey(lap.pos) && lap.pos > 0) seq.push('pos', numKey(lap.pos), '.');
   if(cfg.sayGap && lap.pos !== 1) seq.push(...gapKeys(lap.gap));
@@ -606,7 +620,7 @@ const KC = {
   // epoch растёт с каждым снимком clear: номера кругов сравниваются только внутри одного снимка
   ws:null, status:'off', comp:{}, primed:false, rs:{}, epoch:0, saidLeader:null, guid:null, seenFor:null, run:'', raceName:'', runName:'', flag:null, lostAt:0, saidLost:false, timer:{},
   open(){
-    if(this.ws && this.ws.readyState <= 1) return;
+    if(Sim.on || this.ws && this.ws.readyState <= 1) return;
     let ws; try{ ws = new WebSocket(KC_WS); }catch(e){ return; }
     let opened = false, got = false;
     this.ws = ws; if(this.status === 'off') this.status = 'wait'; ui();
@@ -691,21 +705,73 @@ function pushLap(lap){
 }
 function repeatLast(){ if(last) announce({...last, sayLeader:true, taunt:false}); else Voice.say(['nolaps', '.']); }
 
-/* ---------- Тест: фейковые круги ---------- */
-const Test = {
-  t:null, n:0,
-  toggle(){
-    if(this.t){ clearInterval(this.t); this.t = null; ui(); return; }
-    if(!running) start();
-    this.n = 0;
-    this.t = setInterval(() => {
-      this.n++;
-      const lt = 63500 + Math.floor(Math.random()*4000), best = Math.min(lt, ...laps.filter(l => l.run === 'тест').map(l => l.lt));
-      const pos = 1 + Math.floor(Math.random()*5);
-      pushLap({cid:'test', run:'тест', n:this.n, lt, pos, taunt:Streak.lap('тест|' + this.t, this.n, pos), best, pb: lt === best && this.n > 1, leader: 63412, me1:false, at:Date.now()});
-    }, 20000);
+/* ---------- Симулятор: фейковый заезд через настоящий разбор KC (json → diff → lap → Streak → announce) ---------- */
+// План: «13*10» — 10 кругов на 13-м месте, «x» — круг без связи, «r» — переподключение без пропуска; пусто — случайно без конца
+const Sim = {
+  on:false, t:null, mute:false,
+  toggle(){ this.on ? this.end() : this.begin(); },
+  parse(s){
+    const out = [];
+    for(const w of String(s || '').trim().split(/[\s,;]+/).filter(Boolean)){
+      const m = /^(\d+|x|r)(?:\*(\d+))?$/i.exec(w); if(!m) return w;
+      for(let i = 0; i < (m[2] ? +m[2] : 1); i++) out.push(m[1].toLowerCase());
+    }
+    return out;
+  },
+  begin(){
+    $('#simLog').innerHTML = '';
+    if(!cfg.num){ this.note('Укажи номер карта в «Мой карт».'); return; }
+    const plan = this.parse(cfg.simPlan);
+    if(typeof plan === 'string'){ this.note(`Не понял «${plan}». Пример: 13*3 5*4 7 x r`); return; }
+    if(running) stop();
+    this.plan = plan; this.i = 0; this.lapN = 0; this.lost = false; this.guid = 'sim-' + Date.now();
+    const N = Math.max(14, ...plan.filter(p => /\d/.test(p)).map(Number));
+    this.me = 'sim' + cfg.num; this.k = {};
+    for(let i = 1; i < N; i++){ const num = String(i) === String(cfg.num) ? 90 + i : i; this.k['s' + i] = {num, name:'Пилот ' + num, base:63000 + i*200, best:0, last:0, laps:0}; }
+    this.k[this.me] = {num:cfg.num, name:'Ты', base:64000, best:0, last:0, laps:0};
+    this.order = Object.keys(this.k);
+    this.on = true; this.mute = +cfg.simEvery < 2;
+    KC.close(); KC.comp = {}; last = null;
+    start();
+    this.note(this.mute ? 'Симуляция без голоса: смотри текст ниже.' : 'Симуляция: круги идут, голос включён.');
+    this.snap();
+    this.t = setInterval(() => this.tick(), +cfg.simEvery * 1000);
     ui();
-  }
+  },
+  end(msg, soft){
+    clearInterval(this.t); this.t = null; this.on = false;
+    if(msg) this.note(msg);
+    stop(soft); KC.comp = {}; ui();
+  },
+  rows(){
+    const r = {};
+    this.order.forEach((id, i) => { const c = this.k[id];
+      r[id] = {[F.POS]:i + 1, [F.NUM]:c.num, [F.NAME]:c.name, [F.BEST]:c.best, [F.LAST1]:c.last, [F.LAPS]:c.laps, [F.DIFF]:i ? i*1700 : 0}; });
+    return r;
+  },
+  ttg(){ return Math.max(0, 5*3600 - this.lapN*65); },
+  snap(){ KC.json({command:'clear', [F.RUN_GUID]:this.guid, [F.RACE_NAME]:'Симуляция', [F.RUN_NAME]:'Заезд', [F.FINISH_TYPE]:'finishByTime', [F.TIME_TO_GO]:this.ttg(), results:this.rows()}); },
+  tick(){
+    let tok;
+    if(this.plan.length){ tok = this.plan[this.i++]; if(tok == null){ this.end('Сценарий закончился.', true); return; } }
+    else tok = String(Math.max(1, Math.min(this.order.length, this.order.indexOf(this.me) + 1 + Math.round(Math.random()*2 - 1))));
+    if(tok === 'r'){ this.note('Переподключение (новый снимок, круги не пропали).'); this.snap(); return; }
+    if(this.lost && tok !== 'x'){ this.lost = false; this.note('Связь вернулась.'); this.snap(); }
+    this.lapN++;
+    for(const c of Object.values(this.k)){ c.laps++; c.last = c.base + Math.floor(Math.random()*2500); if(!c.best || c.last < c.best) c.best = c.last; }
+    if(tok !== 'x'){ const p = Math.max(1, Math.min(+tok, this.order.length)); this.order = this.order.filter(id => id !== this.me); this.order.splice(p - 1, 0, this.me); }
+    if(tok === 'x'){ this.lost = true; this.note(`Круг ${this.lapN} — нет связи, не дошёл.`); return; }
+    KC.json({[F.TIME_TO_GO]:this.ttg(), results:this.rows()});
+  },
+  said(lap, seq){
+    const txt = seq.map(k => typeof k === 'number' ? ' … ' : k === ',' ? ',' : k === '.' ? '. ' : ' ' + keyText(k)).join('')
+      .replace(/\s+/g, ' ').replace(/ ([,.])/g, '$1').replace(/([,.!?:])[,.]+/g, '$1').trim();
+    const st = STREAKS.map(r => `${r.id} ${Streak.s[r.id]?.n || 0}/${r.laps}`).join(', ');
+    const tag = lap.taunt ? ` · приколдес «${lap.taunt}»${cfg.sayTaunt ? '' : ' (выключены в настройках)'}` : '';
+    this.add(`<b>круг ${lap.n ?? '?'}</b> · P${lap.pos ?? '—'} · ${fmt(lap.lt)} · серии: ${esc(st)}${esc(tag)}<br>«${esc(txt)}»`, lap.taunt ? 'hit' : '');
+  },
+  note(t){ this.add(esc(t), 'sys'); },
+  add(html, cls){ const el = $('#simLog'), d = document.createElement('div'); d.className = cls; d.innerHTML = html; el.append(d); el.scrollTop = el.scrollHeight; }
 };
 
 /* ---------- Старт/стоп ---------- */
@@ -718,11 +784,11 @@ function start(){
   Voice.say(!cfg.num ? ['setnum', '.'] : ['watch', numKey(+cfg.num), '.'].filter(Boolean));
   KC.open(); lockScreenOn(); ui();
 }
-function stop(){
+function stop(soft){                 // soft — не обрывать то, что сейчас говорится (конец симуляции)
   running = false; KC.close(); Keep.stop();
-  if(Test.t){ clearInterval(Test.t); Test.t = null; }
+  if(Sim.on){ Sim.end(); return; }
   try{ wake && wake.release(); }catch(e){} wake = null;
-  Voice.cancel();
+  if(!soft) Voice.cancel();
   ui();
 }
 
@@ -779,7 +845,7 @@ function runClock(){                        // [подпись, значение
   return null;
 }
 function renderRun(){
-  const on = running && !Test.t && KC.status === 'on';
+  const on = running && KC.status === 'on';
   $('#runbar').hidden = !on;
   if(!on) return;
   $('#raceName').textContent = KC.raceName || 'Заезд';
@@ -791,14 +857,14 @@ function renderRun(){
 }
 function ui(){
   renderRun();
-  const st = Test.t ? 'on' : KC.status;
+  const st = KC.status;
   $('#dot').className = 'dot ' + (st === 'on' ? 'on' : st === 'off' ? '' : 'wait');
-  $('#run').textContent = Test.t ? 'тест: фейковые круги' : !running ? 'остановлено' :
+  $('#run').textContent = Sim.on ? 'симуляция заезда' : !running ? 'остановлено' :
     KC.status === 'on' ? (trackName(cfg.track) || 'тайминг на связи') :
     KC.status === 'idle' ? (trackName(cfg.track) || 'тайминг на связи') + ': активного заезда нет' : KC.status === 'wait' ? 'подключаюсь…' : 'нет связи, переподключаюсь…';
   $('#go').textContent = running ? '■ СТОП' : '▶ СТАРТ';
   $('#go').className = 'go' + (running ? ' stop' : '');
-  $('#test').textContent = Test.t ? '■ Остановить тест' : '🧪 Тест в кармане: фейковый круг каждые 20 с';
+  $('#test').textContent = Sim.on ? '■ Остановить симуляцию' : '🧪 Запустить симуляцию';
   $('#kNum').textContent = cfg.num || '—';
   const me = Object.values(KC.comp).find(c => String(c[F.NUM]) === String(cfg.num));
   $('#lap').textContent = last ? fmt(last.lt) : me && me[F.LAST1] > 0 ? fmt(me[F.LAST1]) : '-:--.--';
@@ -828,7 +894,7 @@ function ui(){
 const esc = s => String(s ?? '').replace(/[&<>"]/g, ch => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[ch]));
 
 function bind(){
-  const map = {rep:'rep', leaderMode:'leaderMode', leaderWhen:'leaderWhen', voice:'voice', rate:'rate', keep:'keep', track:'track', boost:'boost'};
+  const map = {rep:'rep', leaderMode:'leaderMode', leaderWhen:'leaderWhen', voice:'voice', rate:'rate', keep:'keep', track:'track', boost:'boost', simEvery:'simEvery'};
   for(const id in map){ const el = $('#' + id); el.value = cfg[map[id]]; el.onchange = () => { cfg[map[id]] = el.value; saveCfg(); if(id === 'keep' && running) Keep.start(); if(id === 'voice') loadVoice(); if(id === 'track' && running){ KC.close(); KC.comp = {}; KC.open(); } ui(); }; }
   for(const id of ['sayPos','sayGap','sayTaunt','sayPb','sayConn']){ const el = $('#' + id); el.checked = cfg[id]; el.onchange = () => { cfg[id] = el.checked; saveCfg(); }; }
   const num = $('#num'); num.value = cfg.num;
@@ -846,7 +912,8 @@ function bind(){
   // в Android-приложении: во время звонка Discord кнопки меняют громкость звонка, а не медиа — поднимаем медиа отсюда
   if(window.GolosApp && GolosApp.maxVolume){ $('#maxVol').hidden = false; $('#maxVol').onclick = () => GolosApp.maxVolume(); }
   $('#testV').onclick = () => { Clips.audio().resume(); Voice.say([...lapKeys(64326), '.', 'leader', ',', ...lapKeys(63412), '.']); };
-  $('#test').onclick = () => Test.toggle();
+  $('#test').onclick = () => Sim.toggle();
+  const plan = $('#simPlan'); plan.value = cfg.simPlan; plan.oninput = () => { cfg.simPlan = plan.value; saveCfg(); };
   const q = $('#trackQ'), list = $('#tlist');
   const showCur = () => { $('#trackCur').textContent = trackName(cfg.track) || 'своя (trackId)'; $('#trackRow').hidden = !!trackName(cfg.track) && !list.custom; };
   const draw = () => {
