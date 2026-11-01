@@ -377,8 +377,9 @@ if(cfg.voice === 'nn:gladosSv' && VOICES.gladosSv.hidden) cfg.voice = 'nn:glados
 if(cfg.voice.startsWith('nn:') && !VOICES[cfg.voice.slice(3)]) cfg.voice = DEF.voice;
 
 const Clips = {                              // нейроголос: заранее скачанные фрагменты, склейка через WebAudio
-  ctx:null, buf:{}, name:null, ready:false, loading:false, errs:[], until:0,
+  ctx:null, buf:{}, name:null, ready:false, loading:false, errs:[], until:0, live:new Set(),
   audio(){ return this.ctx ||= new (window.AudioContext || window.webkitAudioContext)(); },
+  track(s){ this.live.add(s); s.onended = () => this.live.delete(s); return s; },   // всё запланированное — чтобы cancel мог заглушить
   // Качаем по 6 фрагментов, каждый до 3 попыток; не докачалось — пробуем снова через 15 с.
   // Раньше один сбой на мобильном интернете навсегда переключал на системный голос.
   async load(name){
@@ -420,13 +421,18 @@ const Clips = {                              // нейроголос: заран
       if(typeof k === 'number'){ t += k; continue; }      // явная пауза в секундах
       if(k === ','){ t += gap; continue; }
       if(k === '.'){ t += stop; continue; }
-      const s = c.createBufferSource(); s.buffer = this.buf[k];         // скорость не трогаем — playbackRate меняет и высоту голоса
+      const s = this.track(c.createBufferSource()); s.buffer = this.buf[k];   // скорость не трогаем — playbackRate меняет и высоту голоса
       s.connect(this.out()); s.start(t); t += this.buf[k].duration;
     }
     if(this.fxFor === 'radio'){ radioClick(c, start - .12, 1); radioClick(c, t + .05, 0); t += .3; }
     this.until = t;
   },
-  cancel(){ if(this.ctx){ this.ctx.suspend(); this.until = 0; } },
+  // Глушим каждый запланированный фрагмент. Раньше здесь был ctx.suspend(): фрагменты оставались в очереди
+  // и доигрывали поверх следующей фразы, как только контекст снова запускался (тест голоса, новая симуляция).
+  cancel(){
+    for(const s of this.live) try{ s.stop(); }catch(e){}
+    this.live.clear(); this.until = 0;
+  },
   fxFor:null, fxIn:null, mFor:null, mIn:null,
   out(){                                     // вход цепочки эффектов текущего голоса
     const c = this.audio(), fx = (curVoice() || {}).fx || '', m = this.master();
@@ -477,13 +483,13 @@ function radioChain(c, dest){
 function radioClick(c, t, open){              // писк открытия канала / шипение закрытия
   t = Math.max(t, c.currentTime);
   if(open){
-    const o = c.createOscillator(), g = c.createGain(); o.frequency.value = 1250; g.gain.value = 0;
+    const o = Clips.track(c.createOscillator()), g = c.createGain(); o.frequency.value = 1250; g.gain.value = 0;
     g.gain.setValueAtTime(0, t); g.gain.linearRampToValueAtTime(.12, t + .01); g.gain.setValueAtTime(.12, t + .07); g.gain.linearRampToValueAtTime(0, t + .09);
     o.connect(g); g.connect(Clips.master()); o.start(t); o.stop(t + .1);
   } else {
     const n = c.createBuffer(1, Math.floor(c.sampleRate*.18), c.sampleRate), d = n.getChannelData(0);
     for(let i = 0; i < d.length; i++) d[i] = (Math.random()*2 - 1) * (1 - i/d.length);
-    const s = c.createBufferSource(), bp = c.createBiquadFilter(), g = c.createGain();
+    const s = Clips.track(c.createBufferSource()), bp = c.createBiquadFilter(), g = c.createGain();
     s.buffer = n; bp.type = 'bandpass'; bp.frequency.value = 2500; bp.Q.value = .7; g.gain.value = .09;
     s.connect(bp); bp.connect(g); g.connect(Clips.master()); s.start(t);
   }
@@ -746,6 +752,7 @@ const Sim = {
   },
   end(msg, soft){
     clearInterval(this.t); this.t = null; this.on = false;
+    for(const k in KC.timer) clearTimeout(KC.timer[k]);   // круг, ждущий 700 мс, не должен доехать до следующего запуска
     if(msg) this.note(msg);
     stop(soft); KC.comp = {}; ui();
   },
