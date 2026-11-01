@@ -373,7 +373,7 @@ const VOICES = {
   radio:    {name:'Гоночный инженер', clips:'dmitry', fx:'radio', hi:['hi_radio']},
   glados:   {name:'GLaDOS', clips:'glados2', taunts:true, hi:['hi_glados1', 'hi_glados2', 'hi_glados3', 'hi_glados4']},   // модель TeraTTS/glados2-g2p-vits (RUTTS), make_glados2_clips.py
 };
-const HI = {hi_svetlana:'Привет! Я Света, и сегодня я твой мэнеджер.', hi_dmitry:'Здравствуй! Я Дима, и сегодня я твой мэнеджер.', hi_radio:'Здарова! Меня вынудили помочь тебе на трассе.',
+const HI = {hi_svetlana:'Привет! Я Света, и сегодня я твой мэнеджер.', hi_dmitry:'Здравствуй! Я Дима, и сегодня я твой мэнэджер.', hi_radio:'Здарова! Меня вынудили помочь тебе на трассе.',
   hi_glados1:'Голосовой модуль активирован. Начинаем испытание. Постарайся не разочаровать меня сразу.', hi_glados2:'Привет. Я буду считать твои круги. Все. Даже медленные. Особенно медленные.',
   hi_glados3:'Хронометраж готов. Испытуемый — условно готов.', hi_glados4:'Ты выбрал меня. Разумное решение. Первое за сегодня.'};
 const curVoice = () => cfg.voice.startsWith('nn:') ? VOICES[cfg.voice.slice(3)] : null;
