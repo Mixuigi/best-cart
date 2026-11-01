@@ -2,9 +2,15 @@
 Старая GLaDOS (Светлана + обработка, make_glados_clips.py) остаётся в snd/glados.
 
 Запуск (Python 3.11 — у RUTTS старый transformers без сборок под 3.12+; пакеты RUTTS soundfile):
-    C:\\Users\\misha\\venvs\\rutts\\Scripts\\python.exe make_glados2_clips.py   [--force]
-Результат: snd/glados2/<ключ>.mp3. Ударения правятся в STRESS через «+» перед ударной гласной (прив+ет)."""
-import os, sys
+    C:\\Users\\misha\\venvs\\rutts\\Scripts\\python.exe make_glados2_clips.py   [--force] [--check]
+--check — только показать фонемы каждого фрагмента (o1 — ударная, o0 — безударная), без синтеза.
+Результат: snd/glados2/<ключ>.mp3.
+
+Ударения: у модели словарь на 2 млн слов. Слово с «+» перед ударной гласной (прив+ет) мимо словаря идёт как написано,
+без «+» все гласные безударные. У омографов словарь берёт последний вариант — неверные правим в WORDS/STRESS."""
+import os, re, sys
+if not sys.flags.utf8_mode:   # RUTTS читает словарь без encoding: на Windows (cp1251) не находит ни слова → «наль» вместо «ноль»
+    import subprocess; sys.exit(subprocess.call([sys.executable, '-X', 'utf8', *sys.argv]))
 import numpy as np, soundfile as sf
 from RUTTS import TTS
 
@@ -13,12 +19,22 @@ c = {}
 src = open(os.path.join(HERE, 'make_clips.py'), encoding='utf-8').read()
 exec(src[src.index('\nU = '):src.index('async def one')], c)   # только CLIPS, без импорта edge_tts
 CLIPS = c['CLIPS']
-STRESS = {}            # ключ → текст с ударениями, если модель ставит их не туда
+WORDS = {              # слово → как читать во всех фрагментах (омографы, где словарь выбирает не тот вариант)
+    'шесть': 'ш+есть', 'две': 'дв+е',
+    'пятьдесят': 'пятьдес+ят', 'шестьдесят': 'шестьдес+ят', 'семьдесят': 'с+емьдесят', 'восемьдесят': 'в+осемьдесят',
+}
+STRESS = {             # ключ → текст целиком
+    'report2': 'Их никт+о неув+идит.',   # «не» в словаре — «нё»; слитно читается безударным, как в речи
+    'watch': 'Слеж+у зак+артом',         # «за» в словаре ударное
+}
 SCALE = 1.1            # lenght_scale (так в библиотеке): >1 медленнее
 TARGET_RMS = 0.14      # громкость речи как у фрагментов Светланы (медиана по snd/svetlana)
 SR = 22050             # модель всегда отдаёт 22050 Гц
 MODELS = os.environ.get('RUTTS_MODELS', os.path.expanduser('~/venvs/rutts-models'))   # иначе RUTTS качает модель в ./model
-FORCE = '--force' in sys.argv
+FORCE, CHECK = '--force' in sys.argv, '--check' in sys.argv
+
+def text_for(k):
+    return STRESS.get(k) or re.sub(r'[а-яё]+', lambda m: WORDS.get(m[0].lower(), m[0]), CLIPS[k], flags=re.I)
 
 def trim(x, sr, thr=0.01, pad=0.03):
     idx = np.flatnonzero(np.abs(x) > thr)
@@ -36,10 +52,13 @@ def level(x):
 def main():
     out = os.path.join(HERE, 'snd', 'glados2'); os.makedirs(out, exist_ok=True)
     tts = TTS('TeraTTS/glados2-g2p-vits', save_path=MODELS, add_time_to_end=0.0)
-    for k, text in CLIPS.items():
+    if CHECK:
+        for k in CLIPS: print(f'{k:8} {text_for(k):40} {" ".join(tts.tokenizer.g2p(text_for(k))[1])}')
+        return
+    for k in CLIPS:
         path = os.path.join(out, k + '.mp3')
         if os.path.exists(path) and not FORCE: continue
-        x = np.asarray(tts(STRESS.get(k, text), lenght_scale=SCALE), dtype=np.float32).ravel()
+        x = np.asarray(tts(text_for(k), lenght_scale=SCALE), dtype=np.float32).ravel()
         y = level(trim(x, SR))
         sf.write(path, y.astype(np.float32), SR, format='MP3')
         print(k, end=' ', flush=True)
