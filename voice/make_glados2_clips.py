@@ -1,7 +1,8 @@
 """Фрагменты голоса «GLaDOS» для voice/: модель TeraTTS/glados2-g2p-vits из пакета RUTTS, тексты — CLIPS из make_clips.py, HI и RIDE ниже.
 
-Запуск (Python 3.11 — у RUTTS старый transformers без сборок под 3.12+; пакеты RUTTS soundfile):
-    C:\\Users\\misha\\venvs\\rutts\\Scripts\\python.exe make_glados2_clips.py   [--force] [--check]
+Запуск (Python 3.11 — у RUTTS старый transformers без сборок под 3.12+; пакеты — voice/requirements.txt):
+    ~/venvs/rutts/Scripts/python make_glados2_clips.py   [--force] [--check] [ключ …]   (на Linux/macOS — bin/python)
+Модель (~120 МБ) при первом запуске скачается в ~/venvs/rutts-models (или в $RUTTS_MODELS).
 --check — только показать фонемы каждого фрагмента (o1 — ударная, o0 — безударная), без синтеза.
 Результат: snd/glados2/<ключ>.mp3.
 
